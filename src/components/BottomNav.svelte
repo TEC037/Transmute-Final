@@ -1,5 +1,5 @@
 <script lang="ts">
-  export type TabType = 'deck' | 'collection' | 'studio' | 'shop' | 'me';
+  export type TabType = 'deck' | 'collection' | 'calendar' | 'studio' | 'shop' | 'me';
 
   interface Props {
     activeTab: TabType;
@@ -11,6 +11,7 @@
   const tabs: { id: TabType; label: string; icon: string }[] = [
     { id: 'deck', label: 'Deck', icon: 'style' },
     { id: 'collection', label: 'Cromos', icon: 'inventory_2' },
+    { id: 'calendar', label: 'Calendario', icon: 'calendar_month' },
     { id: 'studio', label: 'IA Studio', icon: 'auto_awesome' },
     { id: 'shop', label: 'Tienda', icon: 'storefront' },
     { id: 'me', label: 'Perfil', icon: 'person' },

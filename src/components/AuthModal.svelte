@@ -15,11 +15,21 @@
     isOpen: boolean;
     currentUser: User | null;
     customApiKey?: string;
+    isNoirDarkMode?: boolean;
     onClose: () => void;
     onSaveApiKey?: (apiKey: string) => void;
+    onToggleNoirDarkMode?: () => void;
   }
 
-  let { isOpen, currentUser, customApiKey = '', onClose, onSaveApiKey }: Props = $props();
+  let {
+    isOpen,
+    currentUser,
+    customApiKey = '',
+    isNoirDarkMode = false,
+    onClose,
+    onSaveApiKey,
+    onToggleNoirDarkMode,
+  }: Props = $props();
 
   let isSignUp = $state(false);
   let email = $state('');
@@ -192,6 +202,26 @@
             {/if}
           </div>
 
+          <!-- Noir Theme Settings Toggle Block -->
+          <div class="p-3 border-[2px] border-black bg-amber-50/60 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between">
+            <div class="pr-2">
+              <div class="flex items-center gap-1.5 font-headline text-xs font-extrabold uppercase text-black">
+                <span class="material-symbols-outlined text-base">movie_filter</span>
+                Modo Noir 1930 (Sepia & Cine)
+              </div>
+              <p class="text-[10px] text-neutral-600 font-mono font-bold leading-tight mt-0.5">
+                Alto contraste en tonos sepia y grano de película antigua de los años 30.
+              </p>
+            </div>
+            <button
+              type="button"
+              onclick={() => onToggleNoirDarkMode?.()}
+              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0 {isNoirDarkMode ? 'bg-amber-400 text-black' : 'bg-black text-white hover:bg-neutral-800'}"
+            >
+              {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
+            </button>
+          </div>
+
           <button
             type="button"
             onclick={handleLogout}
@@ -274,6 +304,26 @@
               class="text-neutral-500 hover:text-black cursor-pointer font-mono-label text-[10px] uppercase"
             >
               Acceso Anónimo →
+            </button>
+          </div>
+
+          <!-- Noir Theme Toggle Block -->
+          <div class="mt-1 p-3 border-[2px] border-black bg-amber-50/60 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between">
+            <div class="pr-2">
+              <div class="flex items-center gap-1.5 font-headline text-xs font-extrabold uppercase text-black">
+                <span class="material-symbols-outlined text-base">movie_filter</span>
+                Modo Noir 1930 (Sepia & Cine)
+              </div>
+              <p class="text-[10px] text-neutral-600 font-mono font-bold leading-tight mt-0.5">
+                Alto contraste en tonos sepia y grano de película antigua de los años 30.
+              </p>
+            </div>
+            <button
+              type="button"
+              onclick={() => onToggleNoirDarkMode?.()}
+              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0 {isNoirDarkMode ? 'bg-amber-400 text-black' : 'bg-black text-white hover:bg-neutral-800'}"
+            >
+              {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
             </button>
           </div>
         </div>

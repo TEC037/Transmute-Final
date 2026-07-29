@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  enableIndexedDbPersistence,
   doc,
   getDoc,
   setDoc,
@@ -48,6 +49,17 @@ const databaseId = config.firestoreDatabaseId && config.firestoreDatabaseId !== 
   : undefined;
 
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+
+// Enable offline persistence in browser
+if (typeof window !== 'undefined') {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn('Firestore persistence precondition failed (multiple tabs open)');
+    } else if (err.code === 'unimplemented') {
+      console.warn('Firestore persistence unimplemented in this environment');
+    }
+  });
+}
 
 export const googleProvider = new GoogleAuthProvider();
 

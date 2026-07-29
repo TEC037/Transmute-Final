@@ -6,7 +6,8 @@ export const INITIAL_USER_PROFILE: UserProfile = {
   currentXp: 450,
   maxXp: 600,
   totalXp: 4850,
-  quote: '¡Transmutando tinta en músculo!',
+  inkDrops: 120,
+  quote: '¡Transmutando tinta en músculo y cromos vintage!',
   avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBHes9F7mpssxnQrEa3N8B_mpmr1u7aC8wzlGPDIoWFJwrf4xmm63M4PiCSZnRZ6ZxFLgW7m3YoEn_LHfMkNorsNRaSkufp7myUPedUy3fRe3FWXw8PSb-tTNNK2SVSmzrOrjlRQhcOmHwFYhZ9egOyrYllEWHin0yaeWeyssAANutOu0ltZsqLFg4kQo2TcaxNWkx4Fb7OX_7RAlllPKZEgM31rdlVTzGiq4lmB2HEhVA7KVT7IwnBJw',
   attributes: {
     strength: 85,
@@ -48,6 +49,7 @@ export const ZERO_USER_PROFILE: UserProfile = {
   currentXp: 0,
   maxXp: 100,
   totalXp: 0,
+  inkDrops: 0,
   quote: '¡Comenzando mi aventura alquímica desde el nivel 1!',
   avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBHes9F7mpssxnQrEa3N8B_mpmr1u7aC8wzlGPDIoWFJwrf4xmm63M4PiCSZnRZ6ZxFLgW7m3YoEn_LHfMkNorsNRaSkufp7myUPedUy3fRe3FWXw8PSb-tTNNK2SVSmzrOrjlRQhcOmHwFYhZ9egOyrYllEWHin0yaeWeyssAANutOu0ltZsqLFg4kQo2TcaxNWkx4Fb7OX_7RAlllPKZEgM31rdlVTzGiq4lmB2HEhVA7KVT7IwnBJw',
   attributes: {
@@ -82,6 +84,7 @@ export const INITIAL_HABITS: HabitCard[] = [
     completed: true,
     minLevel: 1,
     xpReward: 50,
+    inkReward: 10,
     tags: ['MENTAL', 'DAILY'],
   },
   {
@@ -97,6 +100,7 @@ export const INITIAL_HABITS: HabitCard[] = [
     completed: false,
     minLevel: 1,
     xpReward: 30,
+    inkReward: 8,
     tags: ['VITALIDAD', 'DAILY'],
   },
   {
@@ -112,6 +116,7 @@ export const INITIAL_HABITS: HabitCard[] = [
     completed: false,
     minLevel: 15,
     xpReward: 100,
+    inkReward: 20,
     tags: ['LOCKED', 'LVL 15'],
   },
   {
@@ -127,6 +132,7 @@ export const INITIAL_HABITS: HabitCard[] = [
     completed: false,
     minLevel: 2,
     xpReward: 40,
+    inkReward: 10,
     tags: ['INTELECTO', 'DAILY'],
   },
   {
@@ -142,6 +148,7 @@ export const INITIAL_HABITS: HabitCard[] = [
     completed: false,
     minLevel: 3,
     xpReward: 75,
+    inkReward: 15,
     tags: ['FUERZA', 'RUTINA'],
   }
 ];
@@ -286,20 +293,40 @@ export const INITIAL_ALBUM_CARDS: AlbumCard[] = [
 
 export const INITIAL_SHOP_ITEMS: ShopItem[] = [
   {
+    id: 'booster-vintage-classic',
+    title: 'Sobre Vintage Clásico (Tinta)',
+    category: 'pack',
+    priceInk: 25,
+    icon: 'invert_colors',
+    description: 'Abre 2 cromos vintage misteriosos utilizando tus gotas de tinta alquímica.',
+    packRarity: 'classic',
+  },
+  {
+    id: 'booster-vintage-rare',
+    title: 'Sobre Vintage Raro de Tinta Negra',
+    category: 'pack',
+    priceInk: 50,
+    icon: 'auto_awesome',
+    description: 'Sobre de alta calidad. Garantiza al menos 1 cromo de rareza Rara o Épica.',
+    packRarity: 'rare',
+  },
+  {
+    id: 'booster-vintage-legendary',
+    title: 'Sobre Alquímico Legendario de 1930',
+    category: 'pack',
+    priceInk: 90,
+    icon: 'workspace_premium',
+    description: 'El sobre supremo de tinta alquímica. Incluye cromos Épicos o Legendarios.',
+    packRarity: 'legendary',
+  },
+  {
     id: 'booster-1',
-    title: 'Sobre de Tinta Misterioso',
+    title: 'Sobre de Tinta Misterioso (XP)',
     category: 'pack',
     priceXp: 150,
     icon: 'inventory_2',
-    description: 'Contiene 3 cromos coleccionables aleatorios para completar tu álbum.',
-  },
-  {
-    id: 'booster-2',
-    title: 'Sobre Dorado de Leyenda',
-    category: 'pack',
-    priceXp: 350,
-    icon: 'workspace_premium',
-    description: 'Garantiza al menos 1 Cromo Épico o Legendario para el Alquimista.',
+    description: 'Contiene cromos coleccionables aleatorios desbloqueados con XP.',
+    packRarity: 'classic',
   },
   {
     id: 'buff-caffeine',

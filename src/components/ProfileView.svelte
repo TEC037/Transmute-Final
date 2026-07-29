@@ -1,22 +1,29 @@
 <script lang="ts">
-  import type { UserProfile } from '../types';
+  import type { UserProfile, HabitCard } from '../types';
+  import WeeklyHabitChart from './WeeklyHabitChart.svelte';
 
   interface Props {
     user: UserProfile;
+    habits?: HabitCard[];
+    isNoirDarkMode?: boolean;
     onOpenAttributeModal: () => void;
     onToggleBuff: (buffId: string) => void;
     onUpdateQuote: (quote: string) => void;
     onOpenOnboardingModal?: () => void;
     onResetProgressToZero?: () => void;
+    onToggleNoirDarkMode?: () => void;
   }
 
   let {
     user,
+    habits = [],
+    isNoirDarkMode = false,
     onOpenAttributeModal,
     onToggleBuff,
     onUpdateQuote,
     onOpenOnboardingModal,
     onResetProgressToZero,
+    onToggleNoirDarkMode,
   }: Props = $props();
 
   let isEditingQuote = $state(false);
@@ -90,6 +97,10 @@
         </span>
         <span class="font-mono-label text-xs font-bold text-neutral-600">
           XP Total: {user.totalXp}
+        </span>
+        <span class="font-mono-label text-xs bg-amber-300 border-[1.5px] border-black text-black px-2 py-0.5 font-extrabold flex items-center gap-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+          <span class="material-symbols-outlined text-xs">invert_colors</span>
+          {user.inkDrops ?? 0} Gotas
         </span>
       </div>
     </div>
@@ -177,6 +188,13 @@
     </div>
   </section>
 
+  <!-- Weekly Habit Performance Chart (Recharts Noir) -->
+  {#if habits && habits.length > 0}
+    <section class="flex flex-col gap-3">
+      <WeeklyHabitChart {habits} userLevel={user.level} />
+    </section>
+  {/if}
+
   <!-- Active Buffs -->
   <section class="flex flex-col gap-3">
     <div class="flex justify-between items-center border-b-2 border-black w-fit pb-1 pr-4">
@@ -210,8 +228,37 @@
     </div>
   </section>
 
-  <!-- Main Action Buttons -->
+  <!-- Main Action Buttons & Settings -->
   <section class="mt-2 flex flex-col gap-3">
+    <!-- Noir Dark Mode Toggle in Settings -->
+    {#if onToggleNoirDarkMode}
+      <div class="bg-white border-[3px] border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] wobbly-border flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 border-[2px] border-black bg-amber-300 text-black flex items-center justify-center shrink-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rotate-[-2deg]">
+            <span class="material-symbols-outlined text-xl">movie_filter</span>
+          </div>
+          <div>
+            <h4 class="font-headline text-base font-extrabold text-black leading-tight">
+              Modo Noir (Cine 1930)
+            </h4>
+            <p class="font-mono-label text-[11px] text-neutral-600 font-bold mt-0.5">
+              Estética de cine mudo vintage en alto contraste sepia y negro profundo.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onclick={onToggleNoirDarkMode}
+          class="px-3.5 py-2 border-[2.5px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0 {isNoirDarkMode
+            ? 'bg-amber-400 text-black hover:bg-amber-300'
+            : 'bg-black text-white hover:bg-neutral-800'}"
+        >
+          {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
+        </button>
+      </div>
+    {/if}
+
     <button
       type="button"
       onclick={onOpenAttributeModal}

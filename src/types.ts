@@ -31,6 +31,7 @@ export interface HabitCard {
   completed: boolean;
   minLevel: number;
   xpReward: number;
+  inkReward?: number;
   tags: string[];
   lastCompletedDate?: string;
 }
@@ -52,6 +53,7 @@ export interface UserProfile {
   currentXp: number;
   maxXp: number;
   totalXp: number;
+  inkDrops?: number;
   quote: string;
   avatarUrl: string;
   customApiKey?: string;
@@ -79,8 +81,10 @@ export interface ShopItem {
   id: string;
   title: string;
   category: 'pack' | 'buff' | 'cosmetic';
-  priceXp: number;
+  priceXp?: number;
+  priceInk?: number;
   icon: string;
   description: string;
   imageUrl?: string;
+  packRarity?: 'classic' | 'rare' | 'legendary';
 }

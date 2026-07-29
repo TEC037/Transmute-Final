@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HabitCard } from '../types';
+  import WeeklyHabitChart from './WeeklyHabitChart.svelte';
 
   interface Props {
     habits: HabitCard[];
@@ -23,6 +24,8 @@
     onOpenDailySummary,
   }: Props = $props();
 
+  let showChart = $state(true);
+
   let activeHabits = $derived(habits.filter((h) => h.minLevel <= userLevel));
   let completedHabits = $derived(activeHabits.filter((h) => h.completed));
 
@@ -35,7 +38,7 @@
 
 <div class="flex flex-col gap-6 max-w-xl mx-auto pb-16">
   <!-- Top Daily Progress Banner -->
-  <section class="bg-white border-[3px] border-black p-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] wobbly-border flex justify-between items-center gap-4">
+  <section class="bg-white border-[3px] border-black p-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] wobbly-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
     <div class="flex items-center gap-3">
       <div class="w-11 h-11 border-[2.5px] border-black bg-amber-300 text-black flex items-center justify-center shrink-0 font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
         <span class="material-symbols-outlined text-2xl">calendar_today</span>
@@ -50,15 +53,34 @@
       </div>
     </div>
 
-    <button
-      type="button"
-      onclick={onOpenDailySummary}
-      class="px-3.5 py-2 bg-black text-white border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-800 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-    >
-      <span class="material-symbols-outlined text-base text-amber-300">analytics</span>
-      RESUMEN DIARIO
-    </button>
+    <div class="flex items-center gap-2 self-end sm:self-auto">
+      <button
+        type="button"
+        onclick={() => (showChart = !showChart)}
+        class="px-3 py-2 bg-white text-black border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-100 transition-all cursor-pointer flex items-center gap-1.5"
+        title="Mostrar u ocultar gráfica Recharts"
+      >
+        <span class="material-symbols-outlined text-base">bar_chart</span>
+        {showChart ? 'Ocultar Gráfica' : 'Ver Gráfica'}
+      </button>
+
+      <button
+        type="button"
+        onclick={onOpenDailySummary}
+        class="px-3.5 py-2 bg-black text-white border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-800 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+      >
+        <span class="material-symbols-outlined text-base text-amber-300">analytics</span>
+        RESUMEN
+      </button>
+    </div>
   </section>
+
+  <!-- Recharts Weekly Habit Compliance Panel -->
+  {#if showChart}
+    <section class="transition-all duration-300">
+      <WeeklyHabitChart {habits} {userLevel} />
+    </section>
+  {/if}
 
   <!-- Section Header -->
   <div class="flex justify-between items-end border-b-2 border-black pb-2">

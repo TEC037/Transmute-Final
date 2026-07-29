@@ -88,11 +88,14 @@
             </div>
             <div class="my-auto text-center">
               <span class="material-symbols-outlined text-6xl text-black">
-                auto_awesome
+                invert_colors
               </span>
               <div class="font-headline text-lg font-extrabold text-black mt-2">
-                ALQUIMIA DE CROMOS
+                CROMOS DE TINTA VINTAGE
               </div>
+              <p class="text-[10px] font-mono font-bold text-neutral-600 mt-1 uppercase">
+                Gotas Alquímicas de 1930
+              </p>
             </div>
             <div class="w-full h-3 border-t-[2px] border-dashed border-black halftone"></div>
           </div>

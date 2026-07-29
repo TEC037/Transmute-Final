@@ -14,6 +14,7 @@
   import CollectionView from './components/CollectionView.svelte';
   import ShopView from './components/ShopView.svelte';
   import ProfileView from './components/ProfileView.svelte';
+  import CalendarView from './components/CalendarView.svelte';
   import ImageGeneratorView from './components/ImageGeneratorView.svelte';
   import AuthModal from './components/AuthModal.svelte';
   import OnboardingModal from './components/OnboardingModal.svelte';
@@ -22,10 +23,19 @@
   import AttributeModal from './components/AttributeModal.svelte';
   import NewHabitModal from './components/NewHabitModal.svelte';
   import DailySummaryModal from './components/DailySummaryModal.svelte';
+  import AssistantModal from './components/AssistantModal.svelte';
 
   import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, type User } from './lib/firebase';
+  import {
+    saveHabitsLocal,
+    loadHabitsLocal,
+    saveUserProfileLocal,
+    loadUserProfileLocal,
+    saveCardsLocal,
+    loadCardsLocal,
+  } from './lib/storage';
 
-  // Load from LocalStorage or Fallback
+  // Load synchronous fallback from LocalStorage initially
   const loadInitialState = () => {
     try {
       const savedUser = localStorage.getItem('transmute_user');
@@ -60,6 +70,42 @@
   let habits = $state<HabitCard[]>(initial.habits);
   let cards = $state<AlbumCard[]>(initial.cards);
   let shopItems = $state<ShopItem[]>(INITIAL_SHOP_ITEMS);
+
+  // Online / Offline state tracking
+  let isOnline = $state(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  $effect(() => {
+    const updateOnlineStatus = () => {
+      isOnline = navigator.onLine;
+    };
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    // Asynchronously hydrate from IndexedDB for rich offline storage
+    (async () => {
+      try {
+        const storedHabits = await loadHabitsLocal();
+        if (storedHabits && storedHabits.length > 0) {
+          habits = storedHabits.map((h) => ({ ...h, targetType: 'checkbox' }));
+        }
+        const storedUser = await loadUserProfileLocal();
+        if (storedUser) {
+          user = storedUser;
+        }
+        const storedCards = await loadCardsLocal();
+        if (storedCards && storedCards.length > 0) {
+          cards = storedCards;
+        }
+      } catch (err) {
+        console.warn('Error hydrating from IndexedDB:', err);
+      }
+    })();
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  });
 
   // Firebase Auth & User profile
   let currentUser = $state<User | null>(null);
@@ -180,20 +226,44 @@
     }
   };
 
-  const handleTransmuteToCard = (imageUrl: string, title: string) => {
+  const handleDeductInkDrops = (amount: number): boolean => {
+    const currentInk = user.inkDrops ?? 0;
+    if (currentInk < amount) return false;
+    user = {
+      ...user,
+      inkDrops: currentInk - amount,
+    };
+    if (currentUser) {
+      try {
+        updateDoc(doc(db, 'users', currentUser.uid), {
+          inkDrops: user.inkDrops,
+        });
+      } catch (e) {
+        console.error('Error updating ink drops in Firestore', e);
+      }
+    }
+    return true;
+  };
+
+  const handleTransmuteToCard = (
+    imageUrl: string,
+    title: string,
+    category: CardCategory = 'alchemy',
+    rarity: CardRarity = 'legendary'
+  ) => {
     const newCard: AlbumCard = {
       id: `card-ai-${Date.now()}`,
       title,
-      category: 'alchemy',
-      rarity: 'legendary',
+      category,
+      rarity,
       icon: 'auto_awesome',
       imageUrl,
       status: 'unlocked',
       levelReq: 1,
       maxLevel: 5,
       currentLevel: 1,
-      description: 'Ilustración transmutada con IA Gemini e Imagen 3.',
-      lore: 'Creada por el Alquimista a partir de los pigmentos primordiales de la IA.',
+      description: 'Cromo exclusivo transmutado con IA a partir de tus Gotas de Tinta.',
+      lore: `Creado el ${new Date().toLocaleDateString('es-ES')} celebrando tus hábitos y logros alquímicos.`,
       slotNumber: cards.length + 1,
     };
 
@@ -210,35 +280,42 @@
   let boosterModalOpen = $state(false);
   let newHabitModalOpen = $state(false);
   let dailySummaryModalOpen = $state(false);
+  let assistantModalOpen = $state(false);
   let habitToEdit = $state<HabitCard | null>(null);
   let claimedBonusToday = $state(false);
   let attributeModalOpen = $state(false);
   let levelInfoModalOpen = $state(false);
   let selectedCardForModal = $state<AlbumCard | null>(null);
 
-  // Auto-Save to LocalStorage
+  // Noir Dark Mode State (1930s Sepia Film Reel Theme)
+  let isNoirDarkMode = $state(
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('transmute_noir_dark_mode') === 'true'
+      : false
+  );
+
   $effect(() => {
-    try {
-      localStorage.setItem('transmute_user', JSON.stringify(user));
-    } catch (e) {
-      console.error(e);
+    if (typeof document !== 'undefined') {
+      document.body.classList.toggle('dark-noir', isNoirDarkMode);
+      localStorage.setItem('transmute_noir_dark_mode', String(isNoirDarkMode));
     }
   });
 
+  const handleToggleNoirDarkMode = () => {
+    isNoirDarkMode = !isNoirDarkMode;
+  };
+
+  // Auto-Save to IndexedDB & LocalStorage
   $effect(() => {
-    try {
-      localStorage.setItem('transmute_habits', JSON.stringify(habits));
-    } catch (e) {
-      console.error(e);
-    }
+    saveUserProfileLocal(user);
   });
 
   $effect(() => {
-    try {
-      localStorage.setItem('transmute_cards', JSON.stringify(cards));
-    } catch (e) {
-      console.error(e);
-    }
+    saveHabitsLocal(habits);
+  });
+
+  $effect(() => {
+    saveCardsLocal(cards);
   });
 
   // Level Up Helper
@@ -265,9 +342,11 @@
     return null;
   };
 
-  const addXp = (amount: number) => {
+  const addXp = (amount: number, inkAmount?: number) => {
     const updatedTotalXp = user.totalXp + amount;
     const updatedCurrentXp = user.currentXp + amount;
+    const inkGained = inkAmount ?? Math.max(5, Math.round(amount / 5));
+    const updatedInk = (user.inkDrops ?? 0) + inkGained;
 
     const levelUpData = checkLevelUp(updatedCurrentXp, user.maxXp, user.level);
 
@@ -279,12 +358,14 @@
         maxXp: levelUpData.maxXp,
         level: levelUpData.level,
         availablePoints: levelUpData.availablePoints,
+        inkDrops: updatedInk,
       };
     } else {
       user = {
         ...user,
         totalXp: updatedTotalXp,
         currentXp: updatedCurrentXp,
+        inkDrops: updatedInk,
       };
     }
   };
@@ -295,11 +376,13 @@
       if (h.id === id) {
         const nextCompleted = !h.completed;
         if (nextCompleted) {
-          addXp(h.xpReward);
+          const inkBonus = h.inkReward || Math.max(5, Math.round(h.xpReward / 5));
+          addXp(h.xpReward, inkBonus);
           confetti({
-            particleCount: 30,
-            spread: 50,
+            particleCount: 35,
+            spread: 60,
             origin: { y: 0.8 },
+            colors: ['#000000', '#333333', '#ffffff', '#ffd700'],
           });
         }
         return {
@@ -318,11 +401,13 @@
         const nextCount = h.currentCount + 1;
         const reachedTarget = nextCount >= h.targetCount;
         if (reachedTarget && h.currentCount < h.targetCount) {
-          addXp(h.xpReward);
+          const inkBonus = h.inkReward || Math.max(5, Math.round(h.xpReward / 5));
+          addXp(h.xpReward, inkBonus);
           confetti({
-            particleCount: 40,
-            spread: 60,
+            particleCount: 45,
+            spread: 65,
             origin: { y: 0.8 },
+            colors: ['#000000', '#333333', '#ffffff', '#ffd700'],
           });
         }
         return {
@@ -454,14 +539,24 @@
 
   // Shop Action
   const handleBuyShopItem = (item: ShopItem) => {
-    if (user.currentXp < item.priceXp) return;
+    if (item.priceInk !== undefined) {
+      const currentInk = user.inkDrops ?? 0;
+      if (currentInk < item.priceInk) return;
+      user = {
+        ...user,
+        inkDrops: currentInk - item.priceInk,
+      };
+    } else if (item.priceXp !== undefined) {
+      if (user.currentXp < item.priceXp) return;
+      user = {
+        ...user,
+        currentXp: user.currentXp - item.priceXp,
+      };
+    } else {
+      return;
+    }
 
-    user = {
-      ...user,
-      currentXp: user.currentXp - item.priceXp,
-    };
-
-    if (item.id === 'booster-vintage' || item.id === 'booster-gold' || item.id.startsWith('booster-')) {
+    if (item.category === 'pack' || item.id.startsWith('booster-')) {
       boosterModalOpen = true;
     } else if (item.id === 'potion-focus' || item.id.includes('caffeine')) {
       handleToggleBuff('caffeine');
@@ -476,8 +571,10 @@
   <Header
     {user}
     {currentUser}
+    {isOnline}
     onOpenLevelInfo={() => (levelInfoModalOpen = true)}
     onOpenAuthModal={() => (authModalOpen = true)}
+    onOpenAssistant={() => (assistantModalOpen = true)}
   />
 
   <!-- Main View Area -->
@@ -499,12 +596,19 @@
         onSelectCard={(c) => (selectedCardForModal = c)}
         onOpenBoosterPackModal={() => (boosterModalOpen = true)}
       />
+    {:else if activeTab === 'calendar'}
+      <CalendarView
+        {habits}
+        userLevel={user.level}
+      />
     {:else if activeTab === 'studio'}
       <ImageGeneratorView
         {currentUser}
+        {user}
         customApiKey={user.customApiKey || ''}
         onOpenAuthModal={() => (authModalOpen = true)}
         onTransmuteToCard={handleTransmuteToCard}
+        onDeductInkDrops={handleDeductInkDrops}
       />
     {:else if activeTab === 'shop'}
       <ShopView
@@ -515,6 +619,7 @@
     {:else if activeTab === 'me'}
       <ProfileView
         {user}
+        {habits}
         onOpenAttributeModal={() => (attributeModalOpen = true)}
         onToggleBuff={handleToggleBuff}
         onUpdateQuote={handleUpdateQuote}
@@ -585,6 +690,29 @@
     onClose={() => (dailySummaryModalOpen = false)}
     onClaimBonus={handleClaimDailyBonus}
   />
+
+  <AssistantModal
+    isOpen={assistantModalOpen}
+    onClose={() => (assistantModalOpen = false)}
+    {user}
+    {habits}
+    onAddHabit={(h) => {
+      habits = [h, ...habits];
+    }}
+    onToggleHabit={handleToggleHabit}
+    onNavigateTab={(t) => (activeTab = t)}
+  />
+
+  <!-- Floating Assistant Launcher Button -->
+  <button
+    type="button"
+    onclick={() => (assistantModalOpen = true)}
+    class="fixed bottom-20 right-4 z-40 bg-amber-300 text-black border-[3px] border-black p-3 rounded-full shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:bg-amber-400 hover:scale-105 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 group font-mono font-black text-xs"
+    title="Asistente de Flujos AI"
+  >
+    <span class="material-symbols-outlined text-2xl group-hover:rotate-12 transition-transform">auto_awesome</span>
+    <span class="hidden sm:inline-block uppercase tracking-tight pr-1 font-extrabold">Asistente AI</span>
+  </button>
 
   {#if levelInfoModalOpen}
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">

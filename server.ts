@@ -160,6 +160,89 @@ async function startServer() {
     }
   });
 
+  // Assistant & Workflow Automation Endpoint (Gemini 3.6 Flash)
+  app.post('/api/assistant', async (req, res) => {
+    try {
+      const { message, userContext, userApiKey, mode } = req.body;
+
+      const apiKey = (userApiKey && typeof userApiKey === 'string' && userApiKey.trim() !== '')
+        ? userApiKey.trim()
+        : process.env.GEMINI_API_KEY;
+
+      if (!apiKey) {
+        return res.status(400).json({
+          error: 'No se encontró API Key de Gemini. Configura tu clave en los ajustes para interactuar con el Asistente Alquímico.',
+        });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const systemInstruction = `Eres el "Gran Alquimista Noir", un asistente inteligente de flujo de trabajo de los años 1930. Tu propósito es simplificar radicalmente la experiencia del usuario en la aplicación "Transmute: El Álbum de Cromos".
+Analiza la solicitud del usuario junto con su estado actual de hábitos y progreso.
+
+Responde SIEMPRE en formato JSON estructurado con el siguiente esquema:
+{
+  "reply": "Tu mensaje amigable en personaje de alquimista vintage (máximo 3 párrafos, usando metáforas de tinta y transmutación)",
+  "suggestedActions": [
+    {
+      "type": "create_habit" | "mark_complete" | "recommend_shop" | "quick_routine",
+      "label": "Nombre corto de la acción (ej: 'Crear Hábito: Caminar 20 min')",
+      "payload": { ... } // Para create_habit: { title, category, frequency, xpReward, inkReward, minLevel, icon }. Para mark_complete: { habitTitle }. Para quick_routine: array de hábitos.
+    }
+  ]
+}
+
+Si el usuario pide crear una rutina o mejorar sus hábitos, genera automáticamente de 1 a 3 hábitos sugeridos en "suggestedActions".
+Si el usuario dice que ya hizo una tarea (ej: "ya leí 10 páginas"), incluye una acción "mark_complete" con el nombre del hábito correspondiente.
+Si no hay acciones directas, devuelve "suggestedActions": [].
+
+Contexto actual del usuario:
+- Nivel: ${userContext?.level || 1}
+- XP: ${userContext?.currentXp || 0}
+- Gotas de Tinta: ${userContext?.inkDrops || 0}
+- Hábitos actuales (${userContext?.habits?.length || 0}): ${JSON.stringify(userContext?.habits?.map((h: any) => ({ title: h.title, completed: h.completed, category: h.category })) || [])}`;
+
+      const promptText = mode === 'quick_routine'
+        ? `Genera una rutina de 3 hábitos equilibrados y motivadores para simplificar mi día sobre: ${message || 'Productividad y Bienestar'}.`
+        : mode === 'streak_analysis'
+        ? `Analiza mi rendimiento y da consejos prácticos para mantener mis rachas diarias.`
+        : (message || 'Hola Alquimista, ¿cómo puedes simplificar mi rutina hoy?');
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: promptText,
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          temperature: 0.7,
+        },
+      });
+
+      let parsedData: any = { reply: 'Transmutación completada.', suggestedActions: [] };
+      if (response.text) {
+        try {
+          parsedData = JSON.parse(response.text.trim());
+        } catch {
+          parsedData = { reply: response.text, suggestedActions: [] };
+        }
+      }
+
+      return res.json(parsedData);
+    } catch (err: any) {
+      console.error('Error in assistant endpoint:', err);
+      return res.status(500).json({
+        error: err.message || 'Error en el Asistente Alquímico',
+      });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

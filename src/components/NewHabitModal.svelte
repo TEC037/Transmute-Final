@@ -36,6 +36,104 @@
     'local_cafe',
   ];
 
+  // Noir Detective Voice Dictation & Typewriter Effect State
+  let isListening = $state(false);
+  let rawTranscript = $state('');
+  let typewriterText = $state('');
+  let speechError = $state<string | null>(null);
+  let typewriterInterval: any = null;
+
+  function playTypewriterClickSound() {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(350 + Math.random() * 250, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.035);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.035);
+    } catch {
+      // Audio context ignored if blocked
+    }
+  }
+
+  const updateTypewriterText = (targetText: string) => {
+    if (typewriterInterval) clearInterval(typewriterInterval);
+    let index = typewriterText.length;
+    typewriterInterval = setInterval(() => {
+      if (index < targetText.length) {
+        typewriterText = targetText.slice(0, index + 1);
+        playTypewriterClickSound();
+        index++;
+      } else {
+        clearInterval(typewriterInterval);
+      }
+    }, 25);
+  };
+
+  const startSpeechRecognition = () => {
+    speechError = null;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      speechError = 'El navegador actual no soporta la Web Speech API. Por favor, usa Chrome, Edge o Safari.';
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'es-ES';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        rawTranscript = '';
+        typewriterText = '';
+      };
+
+      recognition.onresult = (event: any) => {
+        let currentText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          currentText += event.results[i][0].transcript;
+        }
+        rawTranscript = currentText;
+        updateTypewriterText(currentText);
+      };
+
+      recognition.onerror = (event: any) => {
+        isListening = false;
+        speechError = `Error al escuchar: ${event.error}`;
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        if (rawTranscript.trim()) {
+          applyTranscriptToForm(rawTranscript);
+        }
+      };
+
+      recognition.start();
+    } catch (err: any) {
+      isListening = false;
+      speechError = err.message || 'Error al iniciar reconocimiento de voz.';
+    }
+  };
+
+  const applyTranscriptToForm = (text: string) => {
+    if (!text.trim()) return;
+    const formatted = text.trim().charAt(0).toUpperCase() + text.trim().slice(1);
+    if (!title.trim()) {
+      title = formatted;
+    } else {
+      description = description.trim() ? `${description} (${formatted})` : formatted;
+    }
+  };
+
   $effect(() => {
     if (isOpen) {
       untrack(() => {
@@ -121,6 +219,50 @@
             {habitToEdit ? 'GESTIÓN Y MODIFICACIÓN DE HÁBITO' : 'PERSONALIZA TU DESAFÍO DIARIO'}
           </p>
         </div>
+      </div>
+
+      <!-- Noir Detective Web Speech Typewriter Widget -->
+      <div class="mb-4 bg-[#faf6ee] border-[2.5px] border-black p-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-black">
+          <div class="flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-lg text-black font-bold">mic</span>
+            <span class="font-mono text-xs font-black uppercase tracking-wider text-black">
+              Telégrafo Noir (Web Speech API)
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onclick={startSpeechRecognition}
+            disabled={isListening}
+            class="px-2.5 py-1 text-white border border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 shrink-0 {isListening ? 'animate-pulse bg-red-600' : 'bg-black hover:bg-neutral-800'}"
+          >
+            <span class="material-symbols-outlined text-sm">
+              {isListening ? 'graphic_eq' : 'mic_none'}
+            </span>
+            <span>{isListening ? 'ESCUCHANDO...' : 'DICTAR POR VOZ'}</span>
+          </button>
+        </div>
+
+        <!-- Typewriter Paper Terminal Display -->
+        <div class="bg-amber-50 border border-black p-2.5 min-h-[50px] font-mono text-xs text-black leading-relaxed relative flex items-center">
+          {#if typewriterText || isListening}
+            <div class="w-full">
+              <span class="font-bold text-black font-serif italic">{typewriterText}</span>
+              <span class="inline-block w-2 h-4 bg-black ml-0.5 animate-ping align-middle"></span>
+            </div>
+          {:else}
+            <span class="text-neutral-500 italic font-mono text-[11px]">
+              Presiona "DICTAR POR VOZ" para redactar tu hábito con el efecto de máquina de escribir 1930...
+            </span>
+          {/if}
+        </div>
+
+        {#if speechError}
+          <div class="mt-2 p-1.5 bg-red-100 border border-black text-red-700 font-mono text-[10px] font-bold">
+            ⚠️ {speechError}
+          </div>
+        {/if}
       </div>
 
       <form onsubmit={handleSubmit} class="flex flex-col gap-4 my-2">

@@ -123,3 +123,106 @@
   box-shadow: 0px 0px 0px 0px rgba(0,0,0,1) !important;
 }
 
+/* ==========================================================================
+   NOIR DETECTIVE DARK MODE (1930s Film Reel & Sepia High-Contrast Theme)
+   ========================================================================== */
+body.dark-noir {
+  background-color: #12100e !important;
+  background-image: radial-gradient(#d4a359 1.2px, transparent 1.2px) !important;
+  background-size: 24px 24px !important;
+  color: #f4ebd0 !important;
+}
+
+body.dark-noir::after {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  background: radial-gradient(circle, transparent 55%, rgba(10, 8, 6, 0.75) 100%),
+              repeating-linear-gradient(0deg, rgba(212, 163, 89, 0.03), rgba(212, 163, 89, 0.03) 1px, transparent 1px, transparent 4px);
+  z-index: 9999;
+  opacity: 0.85;
+}
+
+body.dark-noir header {
+  background-color: #1c1814 !important;
+  border-bottom-color: #d4a359 !important;
+  box-shadow: 4px 4px 0px 0px rgba(212, 163, 89, 0.5) !important;
+}
+
+body.dark-noir nav {
+  background-color: #1c1814 !important;
+  border-top-color: #d4a359 !important;
+}
+
+body.dark-noir .bg-white {
+  background-color: #1a1714 !important;
+  color: #f4ebd0 !important;
+}
+
+body.dark-noir .bg-[#f9f9f9],
+body.dark-noir .bg-[#faf6ee],
+body.dark-noir .bg-[#f8f8f9],
+body.dark-noir .bg-neutral-50,
+body.dark-noir .bg-neutral-100 {
+  background-color: #26211c !important;
+  color: #f4ebd0 !important;
+}
+
+body.dark-noir .text-black {
+  color: #f4ebd0 !important;
+}
+
+body.dark-noir .text-neutral-600,
+body.dark-noir .text-neutral-700,
+body.dark-noir .text-neutral-800 {
+  color: #d4c5ab !important;
+}
+
+body.dark-noir .border-black,
+body.dark-noir .border-[3px].border-black,
+body.dark-noir .border-[2.5px].border-black,
+body.dark-noir .border-[4px].border-black,
+body.dark-noir .border-[2px].border-black,
+body.dark-noir .border-b-[3px].border-black,
+body.dark-noir .border-t-[3px].border-black {
+  border-color: #d4a359 !important;
+}
+
+body.dark-noir .shadow-[4px_4px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[5px_5px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[10px_10px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[7px_7px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[3px_3px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[2px_2px_0px_0px_rgba(0,0,0,1)],
+body.dark-noir .shadow-[2.5px_2.5px_0px_0px_rgba(0,0,0,1)] {
+  box-shadow: 3px 3px 0px 0px rgba(212, 163, 89, 0.6) !important;
+}
+
+body.dark-noir input,
+body.dark-noir textarea,
+body.dark-noir select {
+  background-color: #24201b !important;
+  color: #f4ebd0 !important;
+  border-color: #d4a359 !important;
+}
+
+body.dark-noir .wobbly-border,
+body.dark-noir .wobbly-border-sm {
+  border-color: #d4a359 !important;
+}
+
+body.dark-noir .speech-bubble {
+  background-color: #1c1814 !important;
+  border-color: #d4a359 !important;
+  color: #f4ebd0 !important;
+}
+
+body.dark-noir .speech-bubble::before {
+  border-color: #1c1814 transparent transparent transparent !important;
+}
+body.dark-noir .speech-bubble::after {
+  border-color: #d4a359 transparent transparent transparent !important;
+}
+
+
