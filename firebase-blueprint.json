@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "User profile, levels, and preferences",
+      "properties": {
+        "uid": { "type": "string", "description": "Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "Avatar image URL" },
+        "customApiKey": { "type": "string", "description": "Optional user Gemini API Key" },
+        "level": { "type": "number", "description": "Alchemist level" },
+        "currentXp": { "type": "number", "description": "Current level XP" },
+        "maxXp": { "type": "number", "description": "XP limit for current level" },
+        "totalXp": { "type": "number", "description": "Total lifetime XP" },
+        "quote": { "type": "string", "description": "User motto or quote" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid"]
+    },
+    "user_images": {
+      "title": "User Generated Images",
+      "description": "AI-generated and edited images belonging to the user",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of owner" },
+        "prompt": { "type": "string", "description": "Prompt used for generation or editing" },
+        "imageUrl": { "type": "string", "description": "Data URL or HTTP URL of image" },
+        "aspectRatio": { "type": "string", "description": "Aspect ratio of generated image" },
+        "cardTitle": { "type": "string", "description": "Name of transmuted card if applicable" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "imageUrl", "prompt"]
+    }
+  }
+}
