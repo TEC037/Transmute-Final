@@ -84,7 +84,7 @@
         prompt: prompt.trim(),
         aspectRatio,
         style,
-        userApiKey,
+        userApiKey: customApiKey,
       };
 
       if (mode === 'edit' && editSourceBase64) {
@@ -92,7 +92,7 @@
         payload = {
           prompt: prompt.trim(),
           base64Image: editSourceBase64,
-          userApiKey,
+          userApiKey: customApiKey,
         };
       }
 
@@ -123,7 +123,12 @@
       }
     } catch (err: any) {
       console.error(err);
-      errorMsg = err.message || 'Error al generar la imagen con la API';
+      const msg = err.message || '';
+      if (msg.includes('429') || msg.includes('depleted') || msg.includes('RESOURCE_EXHAUSTED')) {
+        errorMsg = '⚠️ Cuota o créditos depleted en la API de Imagen. Puedes ingresar tu propia API Key de Google AI Studio en tu Perfil / Mi Cuenta para seguir generando sin restricciones.';
+      } else {
+        errorMsg = msg || 'Error al generar la imagen con la API';
+      }
     } finally {
       isGenerating = false;
     }

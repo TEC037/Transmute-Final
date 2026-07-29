@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import {
     auth,
     googleProvider,
@@ -23,13 +24,19 @@
   let isSignUp = $state(false);
   let email = $state('');
   let password = $state('');
-  let apiKeyInput = $state(customApiKey);
+  let apiKeyInput = $state('');
   let errorMsg = $state('');
   let loading = $state(false);
   let successMsg = $state('');
 
   $effect(() => {
-    apiKeyInput = customApiKey;
+    if (isOpen) {
+      untrack(() => {
+        apiKeyInput = customApiKey;
+        errorMsg = '';
+        successMsg = '';
+      });
+    }
   });
 
   const handleGoogleAuth = async () => {

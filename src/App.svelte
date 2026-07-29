@@ -21,6 +21,7 @@
   import CardDetailModal from './components/CardDetailModal.svelte';
   import AttributeModal from './components/AttributeModal.svelte';
   import NewHabitModal from './components/NewHabitModal.svelte';
+  import DailySummaryModal from './components/DailySummaryModal.svelte';
 
   import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, type User } from './lib/firebase';
 
@@ -31,9 +32,15 @@
       const savedHabits = localStorage.getItem('transmute_habits');
       const savedCards = localStorage.getItem('transmute_cards');
 
+      const rawHabits = savedHabits ? JSON.parse(savedHabits) : INITIAL_HABITS;
+      const normalizedHabits = rawHabits.map((h: HabitCard) => ({
+        ...h,
+        targetType: 'checkbox',
+      }));
+
       return {
         user: savedUser ? JSON.parse(savedUser) : INITIAL_USER_PROFILE,
-        habits: savedHabits ? JSON.parse(savedHabits) : INITIAL_HABITS,
+        habits: normalizedHabits,
         cards: savedCards ? JSON.parse(savedCards) : INITIAL_ALBUM_CARDS,
       };
     } catch (e) {
@@ -202,6 +209,9 @@
   // Modals state
   let boosterModalOpen = $state(false);
   let newHabitModalOpen = $state(false);
+  let dailySummaryModalOpen = $state(false);
+  let habitToEdit = $state<HabitCard | null>(null);
+  let claimedBonusToday = $state(false);
   let attributeModalOpen = $state(false);
   let levelInfoModalOpen = $state(false);
   let selectedCardForModal = $state<AlbumCard | null>(null);
@@ -325,17 +335,58 @@
     });
   };
 
-  const handleAddHabit = (
-    newHabitData: Omit<HabitCard, 'id' | 'completed' | 'streak' | 'currentCount'>
+  const handleSaveHabit = (
+    habitData: Partial<HabitCard>,
+    id?: string
   ) => {
-    const newHabit: HabitCard = {
-      ...newHabitData,
-      id: `habit-${Date.now()}`,
-      completed: false,
-      streak: 0,
-      currentCount: 0,
-    };
-    habits = [newHabit, ...habits];
+    if (id) {
+      habits = habits.map((h) => (h.id === id ? ({ ...h, ...habitData } as HabitCard) : h));
+    } else {
+      const newHabit: HabitCard = {
+        title: habitData.title || 'Nuevo Hábito',
+        category: habitData.category || 'Diario',
+        icon: habitData.icon || 'fitness_center',
+        streak: 0,
+        targetType: habitData.targetType || 'checkbox',
+        currentCount: 0,
+        targetCount: habitData.targetCount || 1,
+        unit: habitData.unit || 'veces',
+        completed: false,
+        minLevel: habitData.minLevel || 1,
+        xpReward: habitData.xpReward || 20,
+        tags: habitData.tags || ['General'],
+        id: `habit-${Date.now()}`,
+      };
+      habits = [newHabit, ...habits];
+    }
+    habitToEdit = null;
+  };
+
+  const handleDeleteHabit = (id: string) => {
+    habits = habits.filter((h) => h.id !== id);
+    if (habitToEdit?.id === id) {
+      habitToEdit = null;
+    }
+  };
+
+  const handleOpenEditHabit = (habit: HabitCard) => {
+    habitToEdit = habit;
+    newHabitModalOpen = true;
+  };
+
+  const handleOpenNewHabitModal = () => {
+    habitToEdit = null;
+    newHabitModalOpen = true;
+  };
+
+  const handleClaimDailyBonus = () => {
+    addXp(25);
+    claimedBonusToday = true;
+    confetti({
+      particleCount: 80,
+      spread: 60,
+      origin: { y: 0.5 },
+    });
   };
 
   // Card Actions
@@ -437,7 +488,10 @@
         userLevel={user.level}
         onToggleHabit={handleToggleHabit}
         onIncrementCounter={handleIncrementCounter}
-        onOpenNewHabitModal={() => (newHabitModalOpen = true)}
+        onOpenNewHabitModal={handleOpenNewHabitModal}
+        onEditHabitRequest={handleOpenEditHabit}
+        onDeleteHabit={handleDeleteHabit}
+        onOpenDailySummary={() => (dailySummaryModalOpen = true)}
       />
     {:else if activeTab === 'collection'}
       <CollectionView
@@ -514,8 +568,22 @@
 
   <NewHabitModal
     isOpen={newHabitModalOpen}
-    onClose={() => (newHabitModalOpen = false)}
-    onAddHabit={handleAddHabit}
+    {habitToEdit}
+    onClose={() => {
+      newHabitModalOpen = false;
+      habitToEdit = null;
+    }}
+    onSaveHabit={handleSaveHabit}
+    onDeleteHabit={handleDeleteHabit}
+  />
+
+  <DailySummaryModal
+    isOpen={dailySummaryModalOpen}
+    {habits}
+    userLevel={user.level}
+    {claimedBonusToday}
+    onClose={() => (dailySummaryModalOpen = false)}
+    onClaimBonus={handleClaimDailyBonus}
   />
 
   {#if levelInfoModalOpen}
