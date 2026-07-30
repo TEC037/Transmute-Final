@@ -4,6 +4,7 @@ import { mount } from 'svelte';
 import { startRewardHandler } from './lib/rewardHandler';
 import { startSyncLoop } from './lib/sync';
 import { auth, onAuthStateChanged } from './lib/firebase';
+import { setAuthToken, clearAuthToken } from './lib/authToken';
 
 const app = mount(App, {
   target: document.getElementById('root')!,
@@ -12,8 +13,7 @@ const app = mount(App, {
 // Start reward handler for global reward events
 startRewardHandler();
 
-// Token management: persist Firebase ID token to localStorage and refresh periodically
-// The server endpoint /api/sync is expected to verify this token (Authorization: Bearer <idToken>).
+// Token management: keep Firebase ID token in memory and refresh periodically
 let refreshIntervalHandle: number | null = null;
 const REFRESH_INTERVAL_MS = 1000 * 60 * 40; // refresh every 40 minutes
 
@@ -21,7 +21,7 @@ onAuthStateChanged(auth, async (user) => {
   try {
     if (user) {
       const token = await user.getIdToken();
-      localStorage.setItem('authToken', token);
+      setAuthToken(token);
 
       // Clear previous interval if any
       if (refreshIntervalHandle) {
@@ -32,15 +32,15 @@ onAuthStateChanged(auth, async (user) => {
         try {
           if (auth.currentUser) {
             const refreshed = await auth.currentUser.getIdToken(true);
-            localStorage.setItem('authToken', refreshed);
+            setAuthToken(refreshed);
           }
         } catch (err) {
           console.warn('Failed to refresh ID token during interval', err);
-          localStorage.removeItem('authToken');
+          clearAuthToken();
         }
       }, REFRESH_INTERVAL_MS) as unknown as number;
     } else {
-      localStorage.removeItem('authToken');
+      clearAuthToken();
       if (refreshIntervalHandle) {
         clearInterval(refreshIntervalHandle);
         refreshIntervalHandle = null;
@@ -48,7 +48,7 @@ onAuthStateChanged(auth, async (user) => {
     }
   } catch (err) {
     console.warn('Failed to refresh ID token for sync auth', err);
-    localStorage.removeItem('authToken');
+    clearAuthToken();
   }
 });
 
