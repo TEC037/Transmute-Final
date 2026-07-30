@@ -4,6 +4,8 @@
 // - startSyncLoop() will try to deliver jobs using a server-side endpoint (/api/sync).
 // The server should accept the task payload and perform Firestore writes using admin credentials.
 
+import { auth } from './firebase';
+
 export type SyncTask = {
   id: string; // unique id (e.g. habit-123 or user-uid + ts)
   entity: 'habit' | 'user' | 'card' | 'shop' | string;
@@ -46,19 +48,43 @@ function nextBackoff(attempts = 0) {
 async function deliverTask(task: SyncTask): Promise<boolean> {
   try {
     const url = '/api/sync';
-    // Optional: provide an auth token if your backend requires it (e.g. Firebase ID token)
-    const token = (window as any).__AUTH_TOKEN__ || localStorage.getItem('authToken');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(task),
-      credentials: 'include',
-    });
+    const makeFetch = async (token?: string) => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      return fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(task),
+        credentials: 'include',
+      });
+    };
+
+    let token = (window as any).__AUTH_TOKEN__ || localStorage.getItem('authToken');
+    let res = await makeFetch(token);
 
     if (res.ok) return true;
+
+    // If 401 Unauthorized, try to refresh ID token once (if firebase auth is available)
+    if (res.status === 401) {
+      try {
+        if (auth && (auth as any).currentUser) {
+          const refreshed = await (auth as any).currentUser.getIdToken(true);
+          if (refreshed) {
+            localStorage.setItem('authToken', refreshed);
+            // retry once with refreshed token
+            res = await makeFetch(refreshed);
+            if (res.ok) return true;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to refresh ID token after 401', err);
+      }
+      // If we got a 401 and refresh didn't help, treat as transient to retry later
+      const text401 = await res.text().catch(() => '');
+      console.warn('Sync task unauthorized after refresh; will retry later', res.status, text401);
+      return false;
+    }
 
     // For client errors (4xx) except 429 Too Many Requests, treat as non-retriable and drop the task
     if (res.status >= 400 && res.status < 500 && res.status !== 429) {
