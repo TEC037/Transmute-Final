@@ -1,8 +1,8 @@
 // Minimal sync queue scaffold (offline-first).
 // - Persists the queue in localStorage (simple, no external deps).
 // - expose enqueueSync(task) to add jobs.
-// - startSyncLoop() will try to deliver jobs using a provided deliverer (stub).
-// Replace the deliverer implementation with Firestore / your backend SDK.
+// - startSyncLoop() will try to deliver jobs using a server-side endpoint (/api/sync).
+// The server should accept the task payload and perform Firestore writes using admin credentials.
 
 export type SyncTask = {
   id: string; // unique id (e.g. habit-123 or user-uid + ts)
@@ -42,15 +42,41 @@ function nextBackoff(attempts = 0) {
   return base + jitter;
 }
 
-// Simple pluggable deliverer: replace with Firestore / HTTP calls.
+// Deliverer: POST to server-side endpoint /api/sync which should perform Firestore operations
 async function deliverTask(task: SyncTask): Promise<boolean> {
-  // TODO: Replace this stub with real sync:
-  // - Firestore: doc(...).set/merge/delete
-  // - OR call your API endpoint with fetch and auth
-  // For now, simulate success after a short delay.
-  await new Promise((r) => setTimeout(r, 200));
-  // Return true = success, false = transient failure
-  return true;
+  try {
+    const url = '/api/sync';
+    // Optional: provide an auth token if your backend requires it (e.g. Firebase ID token)
+    const token = (window as any).__AUTH_TOKEN__ || localStorage.getItem('authToken');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(task),
+      credentials: 'include',
+    });
+
+    if (res.ok) return true;
+
+    // For client errors (4xx) except 429 Too Many Requests, treat as non-retriable and drop the task
+    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+      const text = await res.text().catch(() => '');
+      console.warn('Sync task dropped due to client error', res.status, text);
+      return true; // mark as success so it is removed from queue
+    }
+
+    const text = await res.text().catch(() => '');
+    console.warn('Sync task delivery failed, will retry', res.status, text);
+    return false;
+  } catch (err) {
+    // network or other unexpected error - keep for retry
+    // keep console logging for debugging
+    // eslint-disable-next-line no-console
+    console.warn('Sync deliverTask network error or exception', err);
+    return false;
+  }
 }
 
 let processing = false;
