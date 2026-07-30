@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { userStore, habitsStore, cardsStore, rewardEventStore } from './stores';
 import type { HabitCard } from '../types';
+import { enqueueSync } from './sync';
 
 // Synchronous helper to check level up
 function checkLevelUp(currentXp: number, maxXp: number, level: number, user: any) {
@@ -28,7 +29,7 @@ export const addXp = (amount: number, inkAmount?: number) => {
   const levelUpData = checkLevelUp(updatedCurrentXp, user.maxXp, user.level, user);
 
   if (levelUpData) {
-    userStore.set({
+    const newUser = {
       ...user,
       totalXp: updatedTotalXp,
       currentXp: levelUpData.currentXp,
@@ -36,7 +37,11 @@ export const addXp = (amount: number, inkAmount?: number) => {
       level: levelUpData.level,
       availablePoints: levelUpData.availablePoints,
       inkDrops: updatedInk,
-    });
+    };
+    userStore.set(newUser);
+
+    // enqueue user update
+    enqueueSync({ entity: 'user', action: 'update', id: newUser.uid, payload: newUser });
 
     rewardEventStore.set({
       source: 'habit',
@@ -50,7 +55,9 @@ export const addXp = (amount: number, inkAmount?: number) => {
       timestamp: new Date().toISOString(),
     });
   } else {
-    userStore.set({ ...user, totalXp: updatedTotalXp, currentXp: updatedCurrentXp, inkDrops: updatedInk });
+    const newUser = { ...user, totalXp: updatedTotalXp, currentXp: updatedCurrentXp, inkDrops: updatedInk };
+    userStore.set(newUser);
+    enqueueSync({ entity: 'user', action: 'update', id: newUser.uid, payload: newUser });
     rewardEventStore.set({
       source: 'habit',
       xp: amount,
@@ -74,7 +81,10 @@ export const toggleHabit = (id: string) => {
     return h;
   });
   habitsStore.set(updated);
-  // TODO: enqueue persistence to sync module
+
+  // enqueue persistence job for habit update
+  const changed = updated.find((h) => h.id === id);
+  if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
 };
 
 export const incrementHabitCounter = (id: string) => {
@@ -92,7 +102,9 @@ export const incrementHabitCounter = (id: string) => {
     return h;
   });
   habitsStore.set(updated);
-  // TODO: enqueue persistence to sync module
+
+  const changed = updated.find((h) => h.id === id);
+  if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
 };
 
 export const saveHabit = (habitData: Partial<HabitCard>, id?: string) => {
@@ -100,6 +112,8 @@ export const saveHabit = (habitData: Partial<HabitCard>, id?: string) => {
   if (id) {
     const updated = list.map((h) => (h.id === id ? ({ ...h, ...habitData } as HabitCard) : h));
     habitsStore.set(updated);
+    const changed = updated.find((h) => h.id === id);
+    if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
   } else {
     const newHabit: HabitCard = {
       title: habitData.title || 'Nuevo Hábito',
@@ -117,10 +131,12 @@ export const saveHabit = (habitData: Partial<HabitCard>, id?: string) => {
       id: `habit-${Date.now()}`,
     };
     habitsStore.set([newHabit, ...list]);
+    enqueueSync({ entity: 'habit', action: 'create', id: newHabit.id, payload: newHabit });
   }
 };
 
 export const deleteHabit = (id: string) => {
   const list = get(habitsStore);
   habitsStore.set(list.filter((h) => h.id !== id));
+  enqueueSync({ entity: 'habit', action: 'delete', id, payload: null });
 };
