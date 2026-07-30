@@ -3,8 +3,20 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+// Compute currentFile/currentDir safe for both ESM (import.meta.url) and CommonJS (__filename)
+const currentFile = (typeof __filename !== 'undefined')
+  ? __filename
+  : (typeof import.meta !== 'undefined' && typeof (import.meta as any).url === 'string'
+      ? fileURLToPath((import.meta as any).url)
+      : undefined);
+
+const currentDir = (typeof __dirname !== 'undefined')
+  ? __dirname
+  : (currentFile ? path.dirname(currentFile) : process.cwd());
 
 async function startServer() {
   const app = express();
@@ -184,30 +196,7 @@ async function startServer() {
         },
       });
 
-      const systemInstruction = `Eres el "Gran Alquimista Noir", un asistente inteligente de flujo de trabajo de los años 1930. Tu propósito es simplificar radicalmente la experiencia del usuario en la aplicación "Transmute: El Álbum de Cromos".
-Analiza la solicitud del usuario junto con su estado actual de hábitos y progreso.
-
-Responde SIEMPRE en formato JSON estructurado con el siguiente esquema:
-{
-  "reply": "Tu mensaje amigable en personaje de alquimista vintage (máximo 3 párrafos, usando metáforas de tinta y transmutación)",
-  "suggestedActions": [
-    {
-      "type": "create_habit" | "mark_complete" | "recommend_shop" | "quick_routine",
-      "label": "Nombre corto de la acción (ej: 'Crear Hábito: Caminar 20 min')",
-      "payload": { ... } // Para create_habit: { title, category, frequency, xpReward, inkReward, minLevel, icon }. Para mark_complete: { habitTitle }. Para quick_routine: array de hábitos.
-    }
-  ]
-}
-
-Si el usuario pide crear una rutina o mejorar sus hábitos, genera automáticamente de 1 a 3 hábitos sugeridos en "suggestedActions".
-Si el usuario dice que ya hizo una tarea (ej: "ya leí 10 páginas"), incluye una acción "mark_complete" con el nombre del hábito correspondiente.
-Si no hay acciones directas, devuelve "suggestedActions": [].
-
-Contexto actual del usuario:
-- Nivel: ${userContext?.level || 1}
-- XP: ${userContext?.currentXp || 0}
-- Gotas de Tinta: ${userContext?.inkDrops || 0}
-- Hábitos actuales (${userContext?.habits?.length || 0}): ${JSON.stringify(userContext?.habits?.map((h: any) => ({ title: h.title, completed: h.completed, category: h.category })) || [])}`;
+      const systemInstruction = `Eres el "Gran Alquimista Noir", un asistente inteligente de flujo de trabajo de los años 1930. Tu propósito es simplificar radicalmente la experiencia del usuar[...]\nAnaliza la solicitud del usuario junto con su estado actual de hábitos y progreso.\n\nResponde SIEMPRE en formato JSON estructurado con el siguiente esquema:\n{\n  "reply": "Tu mensaje amigable en personaje de alquimista vintage (máximo 3 párrafos, usando metáforas de tinta y transmutación)",\n  "suggestedActions": [\n    {\n      "type": "create_habit" | "mark_complete" | "recommend_shop" | "quick_routine",\n      "label": "Nombre corto de la acción (ej: 'Crear Hábito: Caminar 20 min')",\n      "payload": { ... } // Para create_habit: { title, category, frequency, xpReward, inkReward, minLevel, icon }. Para mark_complete: { habitTitle }. Para quick_routine: array de hábitos.\n    }\n  ]\n}\n\nSi el usuario pide crear una rutina o mejorar sus hábitos, genera automáticamente de 1 a 3 hábitos sugeridos en "suggestedActions".\nSi el usuario dice que ya hizo una tarea (ej: "ya leí 10 páginas"), incluye una acción "mark_complete" con el nombre del hábito correspondiente.\nSi no hay acciones directas, devuelve "suggestedActions": [].\n\nContexto actual del usuario:\n- Nivel: ${userContext?.level || 1}\n- XP: ${userContext?.currentXp || 0}\n- Gotas de Tinta: ${userContext?.inkDrops || 0}\n- Hábitos actuales (${userContext?.habits?.length || 0}): ${JSON.stringify(userContext?.habits?.map((h: any) => ({ title: h.title, completed: h.completed, category: h.category })) || [])}`;
 
       const promptText = mode === 'quick_routine'
         ? `Genera una rutina de 3 hábitos equilibrados y motivadores para simplificar mi día sobre: ${message || 'Productividad y Bienestar'}.`
@@ -251,7 +240,7 @@ Contexto actual del usuario:
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(currentDir ?? process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
