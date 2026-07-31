@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { HabitCard } from '../types';
+  import { saveHabit, deleteHabit as actionsDeleteHabit } from '../lib/actions';
 
   interface Props {
     isOpen: boolean;
@@ -177,14 +178,18 @@
       tags: parsedTags.length > 0 ? parsedTags : ['General'],
     };
 
-    onSaveHabit(habitData, habitToEdit?.id);
+    // Prefer central action, fall back to provided prop
+    saveHabit(habitData, habitToEdit?.id);
+    if (onSaveHabit) onSaveHabit(habitData, habitToEdit?.id);
     onClose();
   };
 
   const handleDelete = () => {
     if (habitToEdit?.id) {
       if (confirm(`¿Estás seguro de eliminar el hábito "${habitToEdit.title}"?`)) {
-        onDeleteHabit?.(habitToEdit.id);
+        // central action + optional callback
+        actionsDeleteHabit(habitToEdit.id);
+        if (onDeleteHabit) onDeleteHabit(habitToEdit.id);
         onClose();
       }
     }
@@ -194,7 +199,7 @@
 {#if isOpen}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
     <div
-      class="bg-white border-[4px] border-black p-6 w-full max-w-lg wobbly-border shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-150"
+      class="bg-white border-[4px] border-black p-6 w-full max-w-lg wobbly-border shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200"
     >
       <!-- Close button -->
       <button
@@ -233,9 +238,9 @@
 
           <button
             type="button"
-            onclick={startSpeechRecognition}
+            on:click={startSpeechRecognition}
             disabled={isListening}
-            class="px-2.5 py-1 text-white border border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 shrink-0 {isListening ? 'animate-pulse bg-red-600' : 'bg-black hover:bg-neutral-800'}"
+            class="px-2.5 py-1 text-white border border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] active:translate-x-[1px] active:translate-y-[1px]"
           >
             <span class="material-symbols-outlined text-sm">
               {isListening ? 'graphic_eq' : 'mic_none'}
@@ -265,7 +270,7 @@
         {/if}
       </div>
 
-      <form onsubmit={handleSubmit} class="flex flex-col gap-4 my-2">
+      <form on:submit={handleSubmit} class="flex flex-col gap-4 my-2">
         <!-- Title -->
         <div class="flex flex-col gap-1">
           <label class="font-mono-label text-xs font-bold uppercase text-black" for="habit-title">
@@ -349,7 +354,7 @@
             {#each iconsList as ic (ic)}
               <button
                 type="button"
-                onclick={() => (icon = ic)}
+                on:click={() => (icon = ic)}
                 class="w-10 h-10 border-[2px] border-black flex items-center justify-center cursor-pointer transition-all {icon === ic
                   ? 'bg-black text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                   : 'bg-neutral-100 text-black hover:bg-neutral-200'}"
@@ -364,7 +369,7 @@
         <div class="flex flex-col gap-2 mt-3">
           <button
             type="submit"
-            class="w-full py-3 bg-black text-white border-[3px] border-black font-headline text-lg font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-neutral-800 transition-all cursor-pointer flex items-center justify-center gap-2"
+            class="w-full py-3 bg-black text-white border-[3px] border-black font-headline text-lg font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px]"
           >
             <span class="material-symbols-outlined text-xl">
               {habitToEdit ? 'save' : 'add_circle'}
@@ -375,8 +380,8 @@
           {#if habitToEdit}
             <button
               type="button"
-              onclick={handleDelete}
-              class="w-full py-2 bg-red-600 text-white border-[2px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-red-700 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              on:click={handleDelete}
+              class="w-full py-2 bg-red-600 text-white border-[2px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px]"
             >
               <span class="material-symbols-outlined text-base">delete</span>
               ELIMINAR HÁBITO

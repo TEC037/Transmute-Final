@@ -10,6 +10,8 @@
     signOut,
     type User,
   } from '../lib/firebase';
+  import PassphraseModal from './PassphraseModal.svelte';
+  import { encryptAndPersistToken, removePersistedEncryptedToken, setAuthToken, clearAuthToken } from '../lib/authToken';
 
   interface Props {
     isOpen: boolean;
@@ -39,6 +41,11 @@
   let loading = $state(false);
   let successMsg = $state('');
 
+  // new state for remembering device
+  let rememberDevice = $state(false);
+  let showPassphraseModal = $state(false);
+  let passphraseAttempts = $state(0);
+
   $effect(() => {
     if (isOpen) {
       untrack(() => {
@@ -54,6 +61,14 @@
     errorMsg = '';
     try {
       await signInWithPopup(auth, googleProvider);
+      // after successful login, set token in memory and optionally persist encrypted
+      const token = await auth.currentUser!.getIdToken();
+      setAuthToken(token);
+      if (rememberDevice) {
+        showPassphraseModal = true;
+      } else {
+        removePersistedEncryptedToken();
+      }
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -75,6 +90,13 @@
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
+      const token = await auth.currentUser!.getIdToken();
+      setAuthToken(token);
+      if (rememberDevice) {
+        showPassphraseModal = true;
+      } else {
+        removePersistedEncryptedToken();
+      }
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -89,6 +111,13 @@
     errorMsg = '';
     try {
       await signInAnonymously(auth);
+      const token = await auth.currentUser!.getIdToken();
+      setAuthToken(token);
+      if (rememberDevice) {
+        showPassphraseModal = true;
+      } else {
+        removePersistedEncryptedToken();
+      }
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -101,6 +130,8 @@
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      clearAuthToken();
+      removePersistedEncryptedToken();
       onClose();
     } catch (err: any) {
       console.error(err);
@@ -192,7 +223,7 @@
               <button
                 type="button"
                 onclick={handleSaveKey}
-                class="px-3 py-1 bg-black text-white border-[2px] border-black font-mono-label text-xs font-bold hover:bg-neutral-800 cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                class="px-3 py-1 bg-black text-white border-[2px] border-black font-mono-label text-xs font-bold hover:bg-neutral-800 cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:[...]
               >
                 Guardar
               </button>
@@ -216,7 +247,7 @@
             <button
               type="button"
               onclick={() => onToggleNoirDarkMode?.()}
-              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0 {isNoirDarkMode ? 'bg-amber-400 text-black' : 'bg-black text-white hover:bg-neutral-800'}"
+              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:s[...]
             >
               {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
             </button>
@@ -225,7 +256,7 @@
           <button
             type="button"
             onclick={handleLogout}
-            class="w-full py-2.5 bg-red-600 text-white border-[2.5px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-red-700 transition-all cursor-pointer flex items-center justify-center gap-2"
+            class="w-full py-2.5 bg-red-600 text-white border-[2.5px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:tran[...]
           >
             <span class="material-symbols-outlined text-lg">logout</span>
             CERRAR SESIÓN
@@ -240,8 +271,7 @@
             type="button"
             onclick={handleGoogleAuth}
             disabled={loading}
-            class="w-full py-3 bg-white text-black border-[3px] border-black font-headline text-base font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-neutral-100 transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
+            class="w-full py-3 bg-white text-black border-[3px] border-black font-headline text-base font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translat[...]">
             <span class="material-symbols-outlined text-xl">g_mobiledata</span>
             INICIAR SESIÓN CON GOOGLE
           </button>
@@ -281,11 +311,15 @@
               />
             </div>
 
+            <label class="flex items-center gap-2 text-xs font-bold">
+              <input type="checkbox" bind:checked={rememberDevice} />
+              <span>Recordar este dispositivo (protegido con passphrase)</span>
+            </label>
+
             <button
               type="submit"
               disabled={loading}
-              class="w-full py-3 bg-black text-white border-[3px] border-black font-headline text-base font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-neutral-800 transition-all cursor-pointer"
-            >
+              class="w-full py-3 bg-black text-white border-[3px] border-black font-headline text-base font-extrabold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:transl[...]">
               {loading ? 'Cargando...' : isSignUp ? 'REGISTRAR CUENTA' : 'INICIAR SESIÓN'}
             </button>
           </form>
@@ -321,13 +355,34 @@
             <button
               type="button"
               onclick={() => onToggleNoirDarkMode?.()}
-              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0 {isNoirDarkMode ? 'bg-amber-400 text-black' : 'bg-black text-white hover:bg-neutral-800'}"
+              class="px-3 py-1.5 border-[2px] border-black font-mono-label text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:s[...]
             >
               {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
             </button>
           </div>
         </div>
       {/if}
+
+      <PassphraseModal
+        bind:open={showPassphraseModal}
+        on:confirm={async (e) => {
+          const { passphrase } = e.detail;
+          try {
+            const current = await auth.currentUser!.getIdToken();
+            await encryptAndPersistToken(current, passphrase);
+            showPassphraseModal = false;
+          } catch (err) {
+            passphraseAttempts += 1;
+            if (passphraseAttempts >= 3) {
+              removePersistedEncryptedToken();
+              showPassphraseModal = false;
+            }
+          }
+        }}
+        on:cancel={() => {
+          showPassphraseModal = false;
+        }}
+      />
     </div>
   </div>
 {/if}

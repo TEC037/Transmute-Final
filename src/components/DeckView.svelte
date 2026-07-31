@@ -1,38 +1,19 @@
 <script lang="ts">
   import type { HabitCard } from '../types';
   import WeeklyHabitChart from './WeeklyHabitChart.svelte';
+  import { habitsStore } from '../lib/stores';
+  import { toggleHabit, incrementHabitCounter } from '../lib/actions';
+  import { derived } from 'svelte/store';
 
-  interface Props {
-    habits: HabitCard[];
-    userLevel: number;
-    onToggleHabit: (id: string) => void;
-    onIncrementCounter: (id: string) => void;
-    onOpenNewHabitModal: () => void;
-    onEditHabitRequest: (habit: HabitCard) => void;
-    onDeleteHabit: (id: string) => void;
-    onOpenDailySummary: () => void;
-  }
+  let showChart = true;
 
-  let {
-    habits,
-    userLevel,
-    onToggleHabit,
-    onIncrementCounter,
-    onOpenNewHabitModal,
-    onEditHabitRequest,
-    onDeleteHabit,
-    onOpenDailySummary,
-  }: Props = $props();
+  const habits = habitsStore;
 
-  let showChart = $state(true);
-
-  let activeHabits = $derived(habits.filter((h) => h.minLevel <= userLevel));
-  let completedHabits = $derived(activeHabits.filter((h) => h.completed));
-
-  let completionPercent = $derived(
-    activeHabits.length > 0
-      ? Math.round((completedHabits.length / activeHabits.length) * 100)
-      : 0
+  // derived helpers for display
+  const activeHabits = derived([habits], ([$habits]) => $habits.filter((h) => h.minLevel <= 9999));
+  const completedHabits = derived([activeHabits], ([$active]) => $active.filter((h) => h.completed));
+  const completionPercent = derived([activeHabits, completedHabits], ([$active, $completed]) =>
+    $active.length > 0 ? Math.round(($completed.length / $active.length) * 100) : 0
   );
 </script>
 
@@ -45,10 +26,10 @@
       </div>
       <div>
         <h3 class="font-headline text-lg md:text-xl font-extrabold text-black leading-tight">
-          Avance de Hoy ({completionPercent}%)
+          Avance de Hoy ({$completionPercent}%)
         </h3>
         <p class="font-mono-label text-[11px] text-neutral-600 font-bold">
-          {completedHabits.length} DE {activeHabits.length} HÁBITOS COMPLETADOS
+          {$completedHabits.length} DE {$activeHabits.length} HÁBITOS COMPLETADOS
         </p>
       </div>
     </div>
@@ -56,8 +37,8 @@
     <div class="flex items-center gap-2 self-end sm:self-auto">
       <button
         type="button"
-        onclick={() => (showChart = !showChart)}
-        class="px-3 py-2 bg-white text-black border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-100 transition-all cursor-pointer flex items-center gap-1.5"
+        on:click={() => (showChart = !showChart)}
+        class="px-3 py-2 bg-white text-black border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px]"
         title="Mostrar u ocultar gráfica Recharts"
       >
         <span class="material-symbols-outlined text-base">bar_chart</span>
@@ -66,8 +47,8 @@
 
       <button
         type="button"
-        onclick={onOpenDailySummary}
-        class="px-3.5 py-2 bg-black text-white border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-800 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+        on:click={() => (window.dispatchEvent(new CustomEvent('openDailySummary')))}
+        class="px-3.5 py-2 bg-black text-white border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px]"
       >
         <span class="material-symbols-outlined text-base text-amber-300">analytics</span>
         RESUMEN
@@ -78,7 +59,7 @@
   <!-- Recharts Weekly Habit Compliance Panel -->
   {#if showChart}
     <section class="transition-all duration-300">
-      <WeeklyHabitChart {habits} {userLevel} />
+      <WeeklyHabitChart {habits} />
     </section>
   {/if}
 
@@ -94,12 +75,12 @@
     </div>
     <div class="flex flex-col items-end gap-1">
       <span class="font-mono-label text-xs font-bold text-neutral-600 uppercase">
-        {activeHabits.length}/{habits.length} CARDS
+        {$activeHabits.length}/{($habits ?? []).length} CARDS
       </span>
       <button
         type="button"
-        onclick={onOpenNewHabitModal}
-        class="bg-white border-[2.5px] border-black px-3 py-1.5 font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-100 transition-all cursor-pointer flex items-center gap-1"
+        on:click={() => window.dispatchEvent(new CustomEvent('openNewHabit'))}
+        class="bg-white border-[2.5px] border-black px-3 py-1.5 font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px]"
       >
         <span class="material-symbols-outlined text-base">add_circle</span>
         Nuevo Hábito
@@ -109,8 +90,8 @@
 
   <!-- Habit Cards Stack -->
   <div class="flex flex-col gap-5">
-    {#each habits as habit (habit.id)}
-      {@const isLocked = habit.minLevel > userLevel}
+    {#each $habits as habit (habit.id)}
+      {@const isLocked = habit.minLevel > 9999}
 
       {#if isLocked}
         <div
@@ -147,7 +128,7 @@
 
       {:else}
         <div
-          class="group bg-white border-[3px] border-black p-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] wobbly-border relative overflow-hidden transition-all hover:rotate-[0.5deg] {habit.completed ? 'bg-neutral-50/90' : ''}"
+          class="group bg-white border-[3px] border-black p-4 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] wobbly-border relative overflow-hidden transition-all hover:rotate-[0.5deg] {habit.completed ? 'opacity-60' : ''}"
         >
           <!-- Action controls header -->
           <div class="flex items-start justify-between gap-3">
@@ -184,8 +165,8 @@
               <div class="flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200 focus-within:opacity-100">
                 <button
                   type="button"
-                  onclick={() => onEditHabitRequest(habit)}
-                  class="w-8 h-8 border-[2px] border-black bg-white flex items-center justify-center hover:bg-neutral-200 transition-colors cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                  on:click={() => window.dispatchEvent(new CustomEvent('editHabit', { detail: habit }))}
+                  class="w-8 h-8 border-[2px] border-black bg-white flex items-center justify-center hover:bg-neutral-200 transition-colors cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                   title="Editar hábito"
                 >
                   <span class="material-symbols-outlined text-base">edit</span>
@@ -193,8 +174,8 @@
 
                 <button
                   type="button"
-                  onclick={() => onDeleteHabit(habit.id)}
-                  class="w-8 h-8 border-[2px] border-black bg-white flex items-center justify-center hover:bg-red-100 text-red-700 transition-colors cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                  on:click={() => window.dispatchEvent(new CustomEvent('deleteHabit', { detail: habit.id }))}
+                  class="w-8 h-8 border-[2px] border-black bg-white flex items-center justify-center hover:bg-red-100 text-red-700 transition-colors cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                   title="Eliminar hábito"
                 >
                   <span class="material-symbols-outlined text-base">delete</span>
@@ -204,8 +185,8 @@
               <!-- Checkbox Toggle -->
               <button
                 type="button"
-                onclick={() => onToggleHabit(habit.id)}
-                class="w-12 h-12 border-[3px] border-black flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer {habit.completed ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-100'}"
+                on:click={() => toggleHabit(habit.id)}
+                class="w-12 h-12 border-[3px] border-black flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
                 title={habit.completed ? 'Marcar como pendiente' : '¡Completar hábito!'}
               >
                 <span class="material-symbols-outlined text-2xl font-bold">
