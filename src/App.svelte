@@ -27,7 +27,7 @@
     setClaimedBonusDate,
     mergeClaimedBonusDate,
   } from './lib/storage';
-  import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
+  import { enqueueSync, subscribeSyncPending, subscribeSyncDropped, reconcileHabitQueue } from './lib/sync';
   import { persistTodayHistory, todayKey, clearHistory } from './lib/habitHistory';
   import { getAuthToken } from './lib/authToken';
   import { resolveHydration } from './lib/mergeHabits';
@@ -271,6 +271,9 @@
         merged.some((h, i) => h.id !== habits[i].id || h.updatedAt !== habits[i].updatedAt);
       if (changed) {
         habits = merged;
+        // Bring pending sync tasks in line with the merged state so a stale
+        // offline payload doesn't overwrite a newer version from the cloud.
+        reconcileHabitQueue(merged);
         showToast('Hábitos restaurados desde la nube', 'success');
       }
     } catch (err) {

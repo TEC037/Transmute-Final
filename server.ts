@@ -5,7 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { getApps, getApp, initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, type Firestore, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 dotenv.config();
@@ -312,10 +312,11 @@ async function startServer() {
 
       // Habits: only the owner may update/delete an existing document.
       // Docs missing ownerUid (legacy) are claimed by the first writer.
+      let existingDoc: DocumentSnapshot | null = null;
       if (colName === 'habits') {
-        const existing = await col.doc(docId).get();
-        if (existing.exists) {
-          const owner = existing.get('ownerUid');
+        existingDoc = await col.doc(docId).get();
+        if (existingDoc.exists) {
+          const owner = existingDoc.get('ownerUid');
           if (owner && owner !== uid) {
             return res.status(403).json({ error: "Cannot modify another user's habit" });
           }
@@ -324,8 +325,29 @@ async function startServer() {
 
       if (action === 'create' || action === 'update') {
         const safePayload = sanitizePayload(payload);
+        const payloadUpdatedAt =
+          payload && typeof payload.updatedAt === 'string' && payload.updatedAt.length > 0
+            ? payload.updatedAt
+            : '';
+
+        // Cross-device lost-update protection: a stale queued task (e.g. an
+        // offline change superseded on another device) must not overwrite a
+        // newer document. `clientUpdatedAt` mirrors the client's clock so the
+        // comparison is clock-consistent, unlike the serverTimestamp.
+        if (payloadUpdatedAt && existingDoc?.exists) {
+          const existingClientTime = existingDoc.get('clientUpdatedAt');
+          if (typeof existingClientTime === 'string' && payloadUpdatedAt <= existingClientTime) {
+            return res.status(200).json({ ok: true, skipped: true });
+          }
+        }
+
         await col.doc(docId).set(
-          { ...safePayload, ownerUid: uid, updatedAt: FieldValue.serverTimestamp() },
+          {
+            ...safePayload,
+            ownerUid: uid,
+            ...(payloadUpdatedAt ? { clientUpdatedAt: payloadUpdatedAt } : {}),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
           { merge: true }
         );
         return res.status(200).json({ ok: true });
@@ -350,11 +372,19 @@ async function startServer() {
       const snap = await db.collection('habits').where('ownerUid', '==', uid).get();
       const habits = snap.docs.map((d) => {
         const data = d.data();
+        // Prefer the client-clock timestamp for LWW consistency with the sync
+        // guard; fall back to the server timestamp for legacy documents.
+        const clientTime = data.clientUpdatedAt;
         const t = data.updatedAt;
         return {
           ...data,
           id: d.id,
-          updatedAt: t instanceof Timestamp ? t.toDate().toISOString() : undefined,
+          updatedAt:
+            typeof clientTime === 'string'
+              ? clientTime
+              : t instanceof Timestamp
+              ? t.toDate().toISOString()
+              : undefined,
         };
       });
       return res.json({ habits });

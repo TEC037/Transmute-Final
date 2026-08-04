@@ -3,6 +3,7 @@ import {
   enqueueSync,
   getSyncPending,
   subscribeSyncDropped,
+  reconcileHabitQueue,
 } from '../sync';
 
 vi.mock('../firebase', () => ({ auth: { currentUser: null } }));
@@ -42,15 +43,20 @@ describe('sync', () => {
       .mockResolvedValue(new Response('{}', { status: 200 }));
     enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: {} });
     await vi.waitFor(() => expect(getSyncPending()).toBe(0));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const syncCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/sync')
+    );
+    expect(syncCalls).toHaveLength(1);
+    const body = JSON.parse((syncCalls[0][1] as RequestInit).body as string);
     expect(body.id).toBe('h1');
   });
 
   it('surfaces permanently-rejected tasks instead of dropping them silently', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{"error":"Forbidden"}', { status: 403 })
-    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url.includes('/api/health')) return new Response('{"status":"ok"}', { status: 200 });
+      return new Response('{"error":"Forbidden"}', { status: 403 });
+    });
     const dropped = vi.fn();
     const unsub = subscribeSyncDropped(dropped);
     enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: {} });
@@ -59,21 +65,50 @@ describe('sync', () => {
     unsub();
   });
 
-  it('keeps the task and retries with backoff on transient failures, then evicts after MAX_ATTEMPTS', async () => {
+  it('retains tasks while the API is down (no silent eviction) and delivers on reconnect', async () => {
     vi.useFakeTimers();
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockRejectedValue(new TypeError('network down'));
+    let apiUp = false;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url.includes('/api/health')) {
+        if (!apiUp) throw new TypeError('offline');
+        return new Response('{"status":"ok"}', { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    });
 
     enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: {} });
     await vi.runAllTicks();
     expect(getSyncPending()).toBe(1);
-    expect(queueContents()[0].attempts).toBe(1);
 
+    // Long offline stretch: the task survives and no attempts are burned
+    // (the API is probed, not hammered).
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(getSyncPending()).toBe(1);
+    expect(queueContents()[0].attempts).toBe(0);
+
+    // Back online: the retry probe picks it up and delivers it.
+    apiUp = true;
     await vi.runAllTimersAsync();
-    // 6 attempts then the exhausted task is evicted so the queue can never wedge.
-    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(getSyncPending()).toBe(0);
+  });
+
+  it('evicts a task after MAX_ATTEMPTS when the server keeps failing, and warns', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url.includes('/api/health')) return new Response('{"status":"ok"}', { status: 200 });
+      return new Response('{"error":"boom"}', { status: 500 });
+    });
+    const dropped = vi.fn();
+    const unsub = subscribeSyncDropped(dropped);
+
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: {} });
+    await vi.runAllTimersAsync();
+
+    expect(getSyncPending()).toBe(0);
+    expect(dropped).toHaveBeenCalledTimes(1);
+    unsub();
   });
 
   it('coalesces rapid updates for the same entity+id into a single task', () => {
@@ -102,5 +137,50 @@ describe('sync', () => {
     enqueueSync({ entity: 'habit', action: 'update', id: 'h2', payload: {} });
 
     expect(queueContents()).toHaveLength(2);
+  });
+
+  describe('reconcileHabitQueue', () => {
+    it('replaces a pending habit payload with a newer merged state', () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+      enqueueSync({
+        entity: 'habit',
+        action: 'update',
+        id: 'h1',
+        payload: { title: 'viejo', updatedAt: '2026-08-01T00:00:00.000Z' },
+      });
+
+      reconcileHabitQueue([
+        { id: 'h1', title: 'nuevo', updatedAt: '2026-08-04T00:00:00.000Z' } as any,
+      ]);
+
+      expect(queueContents()[0].payload.title).toBe('nuevo');
+      expect(queueContents()[0].payload.updatedAt).toBe('2026-08-04T00:00:00.000Z');
+    });
+
+    it('keeps a queued payload that is newer than the current state', () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+      enqueueSync({
+        entity: 'habit',
+        action: 'update',
+        id: 'h1',
+        payload: { title: 'nuevo', updatedAt: '2026-08-04T00:00:00.000Z' },
+      });
+
+      reconcileHabitQueue([
+        { id: 'h1', title: 'viejo', updatedAt: '2026-08-01T00:00:00.000Z' } as any,
+      ]);
+
+      expect(queueContents()[0].payload.title).toBe('nuevo');
+    });
+
+    it('leaves delete and other-entity tasks untouched', () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+      enqueueSync({ entity: 'habit', action: 'delete', id: 'h1', payload: null });
+      enqueueSync({ entity: 'user', action: 'update', id: 'u1', payload: { level: 5 } });
+
+      reconcileHabitQueue([]);
+
+      expect(queueContents()).toHaveLength(2);
+    });
   });
 });

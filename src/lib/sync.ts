@@ -6,6 +6,7 @@
 
 import { auth } from './firebase';
 import { getAuthToken, setAuthToken } from './authToken';
+import type { HabitCard } from '../types';
 
 type SyncTask = {
   id: string; // unique id (e.g. habit-123 or user-uid + ts)
@@ -22,6 +23,7 @@ type DeliveryResult = 'ok' | 'retry' | 'drop';
 const STORAGE_KEY = 'transmute_sync_queue_v1';
 const MAX_ATTEMPTS = 6;
 const BASE_DELAY_MS = 1000; // base for exponential backoff
+const OFFLINE_RETRY_MS = 10_000; // re-probe interval while the API is down
 
 function readQueue(): SyncTask[] {
   try {
@@ -189,9 +191,9 @@ export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'las
 
 function scheduleRetry(delay: number) {
   if (retryHandle != null) clearTimeout(retryHandle);
-  retryHandle = setTimeout(() => {
+  retryHandle = setTimeout(async () => {
     retryHandle = null;
-    void processQueue();
+    await processQueue();
   }, delay);
 }
 
@@ -199,6 +201,14 @@ async function processQueue() {
   if (processing) return;
   processing = true;
   try {
+    // Only spend an attempt when the API is actually reachable. While
+    // offline, park the queue and re-probe at a fixed interval so queued
+    // changes are retained (not evicted after ~1 minute) and delivered on
+    // reconnect.
+    if (!(await isApiAvailable())) {
+      scheduleRetry(OFFLINE_RETRY_MS);
+      return;
+    }
     for (;;) {
       let q = readQueue();
       if (!q.length) return;
@@ -209,6 +219,7 @@ async function processQueue() {
         q = q.slice(1);
         writeQueue(q);
         notifyPending();
+        notifyDropped(task, `La sincronización descartó un cambio (${task.entity}) tras varios intentos.`);
         continue;
       }
 
@@ -272,16 +283,40 @@ async function isApiAvailable(timeoutMs = 3000): Promise<boolean> {
 export function startSyncLoop(intervalMs = 30_000) {
   if (loopHandle != null) return;
   loopHandle = window.setInterval(async () => {
-    // Only probe the API when there is something queued to deliver.
-    // This avoids pointless proxy requests (and Vite proxy errors) when idle.
-    if (readQueue().length > 0 && (await isApiAvailable())) {
+    // Only deliver when there is something queued. processQueue itself probes
+    // the API, so this avoids pointless proxy requests (and Vite proxy
+    // errors) when idle.
+    if (readQueue().length > 0) {
       await processQueue();
     }
   }, intervalMs);
   // Delay the first attempt so the backend has time to finish booting.
   setTimeout(async () => {
-    if (readQueue().length > 0 && (await isApiAvailable())) {
+    if (readQueue().length > 0) {
       await processQueue();
     }
   }, 3000);
+}
+
+// After a hydration merge, bring any pending habit tasks in line with the
+// newest known state so a stale offline payload can't re-deliver (or race
+// with) a newer version adopted from the cloud.
+export function reconcileHabitQueue(habits: HabitCard[]) {
+  const q = readQueue();
+  const byId = new Map(habits.map((h) => [h.id, h]));
+  let changed = false;
+  for (const t of q) {
+    if (t.entity !== 'habit' || (t.action !== 'create' && t.action !== 'update') || !t.payload) continue;
+    const current = byId.get(t.id);
+    if (
+      current &&
+      typeof current.updatedAt === 'string' &&
+      typeof t.payload.updatedAt === 'string' &&
+      current.updatedAt > t.payload.updatedAt
+    ) {
+      t.payload = current;
+      changed = true;
+    }
+  }
+  if (changed) writeQueue(q);
 }
