@@ -78,3 +78,15 @@ export function setClaimedBonusDate(date: string): void {
     // ignore storage errors
   }
 }
+
+// Multi-device: resolve the latest daily-bonus claim between this device and
+// the cloud. Dates are YYYY-MM-DD, so string comparison is chronological.
+// Adopts the winning date locally and returns it ('' when there is none).
+export function mergeClaimedBonusDate(cloudDate: unknown): string {
+  const local = getClaimedBonusDate();
+  const cloud =
+    typeof cloudDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(cloudDate) ? cloudDate : '';
+  const latest = local && cloud ? (local > cloud ? local : cloud) : cloud || local;
+  if (latest && latest !== local) setClaimedBonusDate(latest);
+  return latest || '';
+}

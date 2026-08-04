@@ -11,6 +11,22 @@ export default defineConfig(() => {
     define: defineEnv,
     base: './',
     plugins: [svelte(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'vendor-firebase';
+              if (id.includes('svelte')) return 'vendor-svelte';
+              return 'vendor';
+            }
+          },
+        },
+      },
+      // The Firebase SDK is large by design; split into its own vendor chunk
+      // so app updates don't re-download it, and acknowledge the size.
+      chunkSizeWarningLimit: 700,
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

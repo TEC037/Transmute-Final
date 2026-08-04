@@ -25,6 +25,7 @@
     unmarkHabitDeleted,
     getClaimedBonusDate,
     setClaimedBonusDate,
+    mergeClaimedBonusDate,
   } from './lib/storage';
   import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
   import { persistTodayHistory, todayKey, clearHistory } from './lib/habitHistory';
@@ -64,11 +65,16 @@
   };
 
   const openModal = async (key: ModalKey, setOpen: (v: boolean) => void) => {
-    if (!modalCtors[key]) {
-      const mod = await modalLoaders[key]();
-      modalCtors[key] = mod.default;
+    try {
+      if (!modalCtors[key]) {
+        const mod = await modalLoaders[key]();
+        modalCtors[key] = mod.default;
+      }
+      setOpen(true);
+    } catch (err) {
+      console.error(`Failed to load modal ${key}`, err);
+      showToast('No se pudo abrir la ventana', 'error');
     }
-    setOpen(true);
   };
 
   const AuthModalCtor = $derived(modalCtors.auth);
@@ -191,6 +197,11 @@
               maxXp: data.maxXp ?? user.maxXp,
               totalXp: data.totalXp ?? user.totalXp,
             };
+            // Multi-device: the bonus can only be claimed once per day. Adopt
+            // the latest claim between this device and the cloud.
+            if (mergeClaimedBonusDate(data.lastBonusClaim) === todayKey()) {
+              claimedBonusToday = true;
+            }
           } else {
             // Create user document if first time (Starts from 0!)
             user = {
@@ -209,6 +220,7 @@
               currentXp: 0,
               maxXp: 100,
               totalXp: 0,
+              lastBonusClaim: getClaimedBonusDate() || '',
               createdAt: new Date().toISOString(),
             });
           }
@@ -601,6 +613,12 @@
     addXp(25);
     claimedBonusToday = true;
     setClaimedBonusDate(todayKey());
+    if (currentUser) {
+      // Mirror the claim to the cloud so other devices respect the once-per-day rule.
+      setDoc(doc(db, 'users', currentUser.uid), { lastBonusClaim: todayKey() }, { merge: true }).catch(
+        (err) => console.error('Failed syncing daily bonus', err)
+      );
+    }
     showStamp({ icon: 'workspace_premium', title: 'BONO RECLAMADO', subtitle: '+25 XP' });
   };
 
