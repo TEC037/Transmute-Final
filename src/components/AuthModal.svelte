@@ -29,6 +29,35 @@
   let errorMsg = $state('');
   let loading = $state(false);
 
+  const friendlyAuthError = (err: any): string => {
+    const code = err?.code || '';
+    switch (code) {
+      case 'auth/admin-restricted-operation':
+        return 'El acceso anónimo no está habilitado en Firebase. Usa Google o correo electrónico, o habilita "Acceso anónimo" en la consola de Firebase (Authentication → Sign-in method).';
+      case 'auth/operation-not-allowed':
+        return 'Este método de acceso no está habilitado en la consola de Firebase.';
+      case 'auth/email-already-in-use':
+        return 'Ya existe una cuenta con este correo electrónico.';
+      case 'auth/invalid-email':
+        return 'El formato del correo electrónico no es válido.';
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+        return 'Correo o contraseña incorrectos.';
+      case 'auth/weak-password':
+        return 'La contraseña debe tener al menos 6 caracteres.';
+      case 'auth/too-many-requests':
+        return 'Demasiados intentos. Espera un momento e inténtalo de nuevo.';
+      case 'auth/popup-blocked':
+        return 'El navegador bloqueó la ventana de Google. Permite los popups e inténtalo de nuevo.';
+      case 'auth/network-request-failed':
+        return 'Sin conexión de red. Revisa tu internet e inténtalo de nuevo.';
+      case 'auth/unauthorized-domain':
+        return 'Este dominio no está autorizado en la consola de Firebase.';
+      default:
+        return err?.message || 'Error en la autenticación';
+    }
+  };
+
   const handleGoogleAuth = async () => {
     loading = true;
     errorMsg = '';
@@ -39,7 +68,7 @@
       onClose();
     } catch (err: any) {
       console.error(err);
-      errorMsg = err.message || 'Error al iniciar sesión con Google';
+      errorMsg = friendlyAuthError(err);
     } finally {
       loading = false;
     }
@@ -62,7 +91,7 @@
       onClose();
     } catch (err: any) {
       console.error(err);
-      errorMsg = err.message || 'Error en la autenticación';
+      errorMsg = friendlyAuthError(err);
     } finally {
       loading = false;
     }
@@ -78,7 +107,7 @@
       onClose();
     } catch (err: any) {
       console.error(err);
-      errorMsg = err.message || 'Error al acceder de forma anónima';
+      errorMsg = friendlyAuthError(err);
     } finally {
       loading = false;
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { HabitCard } from '../types';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   interface Props {
     isOpen: boolean;
@@ -13,10 +14,13 @@
   let { isOpen, habitToEdit = null, onClose, onSaveHabit, onDeleteHabit }: Props = $props();
 
   let title = $state('');
+  let confirmDeleteOpen = $state(false);
+
   $effect(() => {
     if (isOpen) {
       untrack(() => {
         title = habitToEdit ? habitToEdit.title : '';
+        confirmDeleteOpen = false;
       });
     }
   });
@@ -41,10 +45,9 @@
 
   const handleDelete = () => {
     if (habitToEdit?.id) {
-      if (confirm(`¿Estás seguro de eliminar el hábito "${habitToEdit.title}"?`)) {
-        onDeleteHabit?.(habitToEdit.id);
-        onClose();
-      }
+      onDeleteHabit?.(habitToEdit.id);
+      confirmDeleteOpen = false;
+      onClose();
     }
   };
 </script>
@@ -114,7 +117,7 @@
           {#if habitToEdit}
             <button
               type="button"
-              onclick={handleDelete}
+              onclick={() => (confirmDeleteOpen = true)}
               class="w-full py-2 bg-red-600 text-white border-[2px] border-black font-headline text-sm font-extrabold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
             >
               <span class="material-symbols-outlined text-base">delete</span>
@@ -126,5 +129,19 @@
     </div>
   </div>
 {/if}
+
+{#if habitToEdit}
+  <ConfirmModal
+    isOpen={confirmDeleteOpen}
+    title="Eliminar Hábito"
+    message="¿Estás seguro de eliminar el hábito «{habitToEdit.title}»? Esta acción no se puede deshacer."
+    confirmLabel="SÍ, ELIMINAR"
+    cancelLabel="CANCELAR"
+    tone="danger"
+    onConfirm={handleDelete}
+    onCancel={() => (confirmDeleteOpen = false)}
+  />
+{/if}
+
 
 

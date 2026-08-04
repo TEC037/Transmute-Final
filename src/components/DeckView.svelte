@@ -3,6 +3,7 @@
   import { onDestroy } from 'svelte';
   import type { HabitCard } from '../types';
   import Tooltip from './Tooltip.svelte';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   interface Props {
     habits: HabitCard[];
@@ -62,6 +63,9 @@
 
   // Failure acknowledgment modal
   let habitToFail = $state<HabitCard | null>(null);
+
+  // Delete confirmation modal
+  let habitToDelete = $state<HabitCard | null>(null);
 
   // Restore animation tracking
   let prevCompletedIds = $derived(new Set(habits.filter((h) => h.completed).map((h) => h.id)));
@@ -377,7 +381,7 @@
                         </button>
                         <button
                           type="button"
-                          onclick={() => onDeleteHabit(habit.id)}
+                          onclick={() => (habitToDelete = habit)}
                           class="w-7 h-7 border-[2px] border-black bg-white flex items-center justify-center hover:bg-red-100 text-red-700 transition-colors cursor-pointer shadow-[2px_2px_0_0_rgba(0,0,0,1)]"
                           title="Eliminar hábito"
                         >
@@ -572,6 +576,22 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if habitToDelete}
+  <ConfirmModal
+    isOpen={true}
+    title="Eliminar Hábito"
+    message="¿Estás seguro de eliminar el hábito «{habitToDelete.title}»? Esta acción no se puede deshacer."
+    confirmLabel="SÍ, ELIMINAR"
+    cancelLabel="CANCELAR"
+    tone="danger"
+    onConfirm={() => {
+      onDeleteHabit(habitToDelete.id);
+      habitToDelete = null;
+    }}
+    onCancel={() => (habitToDelete = null)}
+  />
 {/if}
 
 <style>
