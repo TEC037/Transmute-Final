@@ -33,12 +33,66 @@
     onOpenDailyShare,
   }: Props = $props();
 
+  // Deck controls: search, category filter, sort
+  let filterCategory = $state<string | null>(null);
+  let searchQuery = $state('');
+  let sortMode = $state<'default' | 'alpha' | 'streak' | 'xp'>('default');
+  let showAllCompleted = $state(false);
+  let showAllFailed = $state(false);
+
+  $effect(() => {
+    filterCategory;
+    searchQuery;
+    sortMode;
+    showAllCompleted = false;
+    showAllFailed = false;
+  });
+
+  const clearFilters = () => {
+    filterCategory = null;
+    searchQuery = '';
+  };
+
   // Derived helpers for display
   const activeHabits = $derived(habits.filter((h) => h.minLevel <= 9999));
-  const completedHabits = $derived(activeHabits.filter((h) => h.completed));
-  const failedHabits = $derived(activeHabits.filter((h) => h.failed));
-  const pendingHabits = $derived(activeHabits.filter((h) => !h.completed && !h.failed));
   const lockedHabits = $derived(habits.filter((h) => h.minLevel > 9999));
+
+  const categories = $derived(
+    Array.from(new Set(activeHabits.map((h) => h.category || 'Diario'))).sort((a, b) =>
+      a.localeCompare(b, 'es')
+    )
+  );
+  const isFiltering = $derived(filterCategory !== null || searchQuery.trim() !== '');
+
+  const filteredHabits = $derived(
+    activeHabits.filter((h) => {
+      if (filterCategory && (h.category || 'Diario') !== filterCategory) return false;
+      const q = searchQuery.trim().toLowerCase();
+      if (q && !h.title.toLowerCase().includes(q)) return false;
+      return true;
+    })
+  );
+
+  const completedHabits = $derived(filteredHabits.filter((h) => h.completed));
+  const failedHabits = $derived(filteredHabits.filter((h) => h.failed));
+
+  const pendingHabits = $derived.by(() => {
+    const list = filteredHabits.filter((h) => !h.completed && !h.failed);
+    switch (sortMode) {
+      case 'alpha':
+        return [...list].sort((a, b) => a.title.localeCompare(b.title, 'es'));
+      case 'streak':
+        return [...list].sort((a, b) => b.streak - a.streak);
+      case 'xp':
+        return [...list].sort((a, b) => b.xpReward - a.xpReward);
+      default:
+        return list;
+    }
+  });
+
+  const MAX_LIST = 8;
+  const displayCompleted = $derived(showAllCompleted ? completedHabits : completedHabits.slice(0, MAX_LIST));
+  const displayFailed = $derived(showAllFailed ? failedHabits : failedHabits.slice(0, MAX_LIST));
   const completionPercent = $derived(
     activeHabits.length > 0 ? Math.round((completedHabits.length / activeHabits.length) * 100) : 0
   );
@@ -241,7 +295,7 @@
     </div>
     <div class="flex flex-col items-end gap-1">
       <span class="font-mono-label text-xs font-bold text-neutral-600 uppercase">
-        {activeHabits.length}/{habits.length} CARDS
+        {isFiltering ? filteredHabits.length : activeHabits.length}/{habits.length} CARDS
       </span>
       <button
         type="button"
@@ -251,6 +305,54 @@
         <span class="material-symbols-outlined text-base">add_circle</span>
         Nuevo Hábito
       </button>
+    </div>
+  </div>
+
+  <!-- Deck Controls: search, category filter, sort -->
+  <div class="flex flex-col gap-2.5 mb-5">
+    <div class="flex flex-col sm:flex-row gap-2.5">
+      <div class="relative flex-1">
+        <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-base text-neutral-400 pointer-events-none">
+          search
+        </span>
+        <input
+          type="search"
+          placeholder="Buscar hábito..."
+          bind:value={searchQuery}
+          class="w-full py-2 pl-9 pr-3 border-[2px] border-black bg-white font-mono-label text-xs font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] outline-none placeholder:text-neutral-400"
+        />
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-base text-neutral-500 shrink-0">sort</span>
+        <select
+          bind:value={sortMode}
+          class="py-2 px-3 border-[2px] border-black bg-white font-mono-label text-xs font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] outline-none cursor-pointer"
+        >
+          <option value="default">Orden por defecto</option>
+          <option value="alpha">Título A-Z</option>
+          <option value="streak">Mayor racha</option>
+          <option value="xp">Mayor XP</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+      <button
+        type="button"
+        onclick={() => (filterCategory = null)}
+        class="shrink-0 px-2.5 py-1 border-[2px] border-black font-mono-label text-[10px] font-extrabold uppercase cursor-pointer shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none {filterCategory === null ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-100'}"
+      >
+        Todos
+      </button>
+      {#each categories as cat (cat)}
+        <button
+          type="button"
+          onclick={() => (filterCategory = filterCategory === cat ? null : cat)}
+          class="shrink-0 px-2.5 py-1 border-[2px] border-black font-mono-label text-[10px] font-extrabold uppercase cursor-pointer shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none {filterCategory === cat ? 'bg-black text-white' : 'bg-white text-black hover:bg-neutral-100'}"
+        >
+          {cat}
+        </button>
+      {/each}
     </div>
   </div>
 
@@ -282,7 +384,7 @@
           </div>
         {:else}
           <div class="flex flex-col gap-3">
-            {#each failedHabits as habit (habit.id)}
+            {#each displayFailed as habit (habit.id)}
               <div class="bg-neutral-100 border-[3px] border-red-700 p-3 shadow-[3px_3px_0_0_rgba(0,0,0,1)] relative overflow-hidden">
                 <div class="flex items-start gap-2">
                   <div class="w-8 h-8 border-[2px] border-red-700 bg-white text-red-700 flex items-center justify-center shrink-0">
@@ -307,6 +409,15 @@
                 </div>
               </div>
             {/each}
+            {#if failedHabits.length > MAX_LIST}
+              <button
+                type="button"
+                onclick={() => (showAllFailed = !showAllFailed)}
+                class="self-center px-3 py-1.5 bg-white border-[2px] border-black font-mono-label text-[10px] font-extrabold uppercase shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-100 cursor-pointer"
+              >
+                {showAllFailed ? 'Mostrar menos' : `+${failedHabits.length - MAX_LIST} más`}
+              </button>
+            {/if}
           </div>
         {/if}
       </section>
@@ -324,15 +435,27 @@
         </div>
 
         {#if pendingHabits.length === 0}
-          <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1">
-            <EmptyState
-              icon="self_improvement"
-              title="El alquimista descansa"
-              description="Tu mazo está en reposo: todos los hábitos de hoy quedaron resueltos. Cuando quieras transmutar algo nuevo, crea otro acuerdo."
-              actionLabel="CREAR HÁBITO"
-              onAction={onOpenNewHabitModal}
-            />
-          </div>
+          {#if isFiltering}
+            <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1">
+              <EmptyState
+                icon="manage_search"
+                title="Sin coincidencias"
+                description="Ningún hábito pendiente coincide con la búsqueda o el filtro activos."
+                actionLabel="Limpiar filtros"
+                onAction={clearFilters}
+              />
+            </div>
+          {:else}
+            <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1">
+              <EmptyState
+                icon="self_improvement"
+                title="El alquimista descansa"
+                description="Tu mazo está en reposo: todos los hábitos de hoy quedaron resueltos. Cuando quieras transmutar algo nuevo, crea otro acuerdo."
+                actionLabel="CREAR HÁBITO"
+                onAction={onOpenNewHabitModal}
+              />
+            </div>
+          {/if}
         {:else}
           <div class="relative h-[360px]">
             {#each deckCards as habit, i (habit.id)}
@@ -507,7 +630,7 @@
           </div>
         {:else}
           <div class="flex flex-col gap-3">
-            {#each completedHabits as habit (habit.id)}
+            {#each displayCompleted as habit (habit.id)}
               <div class="bg-white border-[3px] border-green-700 p-3 shadow-[3px_3px_0_0_rgba(0,0,0,1)] relative overflow-hidden">
                 <div class="flex items-start gap-2">
                   <div class="w-8 h-8 border-[2px] border-black bg-black text-white flex items-center justify-center shrink-0">
@@ -532,6 +655,15 @@
                 </div>
               </div>
             {/each}
+            {#if completedHabits.length > MAX_LIST}
+              <button
+                type="button"
+                onclick={() => (showAllCompleted = !showAllCompleted)}
+                class="self-center px-3 py-1.5 bg-white border-[2px] border-black font-mono-label text-[10px] font-extrabold uppercase shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-neutral-100 cursor-pointer"
+              >
+                {showAllCompleted ? 'Mostrar menos' : `+${completedHabits.length - MAX_LIST} más`}
+              </button>
+            {/if}
           </div>
         {/if}
       </section>
