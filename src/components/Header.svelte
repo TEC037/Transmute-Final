@@ -1,35 +1,38 @@
 <script lang="ts">
-  import { userStore } from '../lib/stores';
-  import { uiStore } from '../lib/stores';
-  import { derived } from 'svelte/store';
+  import type { UserProfile } from '../types';
 
-  // expose minimal events for parent wiring
-  const openLevelInfo = () => uiStore.update((s) => ({ ...s, modals: { ...s.modals, levelInfo: true } }));
-  const openAuth = () => uiStore.update((s) => ({ ...s, modals: { ...s.modals, auth: true } }));
-  const openAssistant = () => uiStore.update((s) => ({ ...s, modals: { ...s.modals, assistant: true } }));
-  const toggleNoir = () => uiStore.update((s) => ({ ...s, noir: !s.noir }));
+  interface Props {
+    user: UserProfile;
+    isOnline?: boolean;
+    onOpenLevelInfo: () => void;
+    onOpenAuthModal: () => void;
+    onOpenAssistant: () => void;
+    onOpenHelp?: () => void;
+    onToggleNoirDarkMode?: () => void;
+  }
 
-  const user = userStore;
-  const xpPercent = derived(user, ($u) => Math.min(100, Math.round((($u.currentXp || 0) / Math.max(1, $u.maxXp || 100)) * 100)));
+  let { user, isOnline = true, onOpenLevelInfo, onOpenAuthModal, onOpenAssistant, onOpenHelp, onToggleNoirDarkMode }: Props = $props();
+
+  const xpPercent = $derived(
+    Math.min(100, Math.round(((user.currentXp || 0) / Math.max(1, user.maxXp || 100)) * 100))
+  );
 </script>
 
-<header class="fixed top-0 left-0 w-full z-40 flex justify-between items-center px-4 md:px-8 py-3 bg-[#f9f9f9] border-b-[3px] border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+<header class="fixed top-0 left-0 w-full z-40 flex justify-between items-center px-4 md:px-8 py-3 bg-white border-b-[3px] border-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
   <div class="flex items-center gap-3">
-    <!-- Avatar -->
     <button 
       type="button"
-      on:click={openLevelInfo}
-      class="w-11 h-11 bg-white border-[3px] border-black wobbly-border overflow-hidden rotate-[-2deg] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer active:scale-95 transition-transform p-0"
+      onclick={onOpenLevelInfo}
+      class="w-11 h-11 bg-white border-[3px] border-black overflow-hidden shadow-[2px_2px_0_0_rgba(0,0,0,1)] cursor-pointer active:scale-95 transition-transform p-0"
       title="Ver nivel del Alquimista"
     >
       <img 
-        src={$user.avatarUrl} 
-        alt={$user.name} 
+        src={user.avatarUrl} 
+        alt={user.name} 
         class="w-full h-full object-cover grayscale"
       />
     </button>
 
-    <!-- Title & Level Bar -->
     <div>
       <div class="flex items-center gap-2">
         <h1 class="font-headline text-2xl md:text-3xl text-black font-extrabold tracking-tight leading-none">
@@ -38,29 +41,37 @@
       </div>
       <div class="flex items-center gap-2 mt-0.5">
         <span class="font-mono-label text-[10px] bg-black text-white px-1 py-0.2 uppercase font-bold tracking-wider">
-          Lvl {$user.level}
+          Lvl {user.level}
         </span>
         <button 
           type="button"
-          class="w-20 md:w-28 h-2.5 border-[2px] border-black bg-white relative overflow-hidden cursor-pointer p-0"
-          on:click={openLevelInfo}
-          title="{$user.currentXp} / {$user.maxXp} XP"
+          class="w-24 md:w-32 h-2.5 border-[2px] border-black bg-white relative overflow-hidden cursor-pointer p-0"
+          onclick={onOpenLevelInfo}
+          title="{user.currentXp} / {user.maxXp} XP"
         >
           <div 
-            class="absolute inset-y-0 left-0 bg-black ink-fill transition-all duration-500"
-            style="width: {$xpPercent}%;"
+            class="absolute inset-y-0 left-0 bg-black transition-all duration-500"
+            style="width: {xpPercent}%;"
           ></div>
         </button>
+        <span class="font-mono-label text-[10px] font-bold text-neutral-600">
+          {user.currentXp}/{user.maxXp}
+        </span>
       </div>
     </div>
   </div>
 
-  <!-- Right Actions: Auth, Dark Mode, XP Badge & AI Assistant -->
   <div class="flex items-center gap-2">
+    <!-- Network Status Indicator -->
+    <div
+      class="w-2.5 h-2.5 rounded-full border border-black {isOnline ? 'bg-green-500' : 'bg-red-500 animate-pulse'}"
+      title={isOnline ? 'En línea' : 'Sin conexión'}
+    ></div>
+
     <button
       type="button"
-      on:click={toggleNoir}
-      class="border-[2.5px] border-black p-1.5 font-mono-label text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none bg-black text-white"
+      onclick={() => onToggleNoirDarkMode?.()}
+      class="border-[2px] border-black p-1.5 font-mono-label text-xs font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none bg-black text-white"
       title="Toggle Noir"
     >
       <span class="material-symbols-outlined text-lg">dark_mode</span>
@@ -68,8 +79,8 @@
 
     <button
       type="button"
-      on:click={openAssistant}
-      class="bg-amber-300 border-[2.5px] border-black p-1.5 font-mono-label text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+      onclick={onOpenAssistant}
+      class="bg-amber-300 border-[2px] border-black p-1.5 font-mono-label text-xs font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
       title="Asistente de Flujos Alquímico AI"
     >
       <span class="material-symbols-outlined text-lg">auto_awesome</span>
@@ -77,26 +88,22 @@
 
     <button
       type="button"
-      on:click={openAuth}
-      class="bg-white border-[2.5px] border-black px-2.5 py-1 font-mono-label text-[11px] font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-      title="Autenticación Firebase y Ajustes de API Key"
+      onclick={onOpenHelp}
+      class="bg-white border-[2px] border-black p-1.5 font-mono-label text-xs font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+      title="Centro de Ayuda"
     >
-      <span class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
-      <span class="hidden sm:inline font-bold">Perfil</span>
-      <span class="sm:hidden">Perfil</span>
+      <span class="material-symbols-outlined text-lg">help</span>
     </button>
 
-    <button 
+    <button
       type="button"
-      on:click={openLevelInfo}
-      class="bg-white border-[2.5px] border-black px-2.5 py-1 font-mono-label text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-      title="{$user.currentXp} XP y {$user.inkDrops ?? 0} Gotas de Tinta"
+      onclick={onOpenAuthModal}
+      class="bg-white border-[2px] border-black px-2.5 py-1 font-mono-label text-[11px] font-bold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+      title="Autenticación Firebase y Ajustes"
     >
-      <span>XP: {$user.currentXp}</span>
-      <span class="border-l border-black pl-1.5 text-black font-extrabold flex items-center gap-0.5" title="Gotas de tinta alquímica acumuladas">
-        <span class="material-symbols-outlined text-xs text-black">invert_colors</span>
-        {$user.inkDrops ?? 0}
-      </span>
+      <span class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+      <span class="hidden sm:inline font-bold">Perfil</span>
+      <span class="sm:hidden">Perfil</span>
     </button>
   </div>
 </header>

@@ -17,19 +17,6 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid"]
-    },
-    "user_images": {
-      "title": "User Generated Images",
-      "description": "AI-generated and edited images belonging to the user",
-      "properties": {
-        "userId": { "type": "string", "description": "UID of owner" },
-        "prompt": { "type": "string", "description": "Prompt used for generation or editing" },
-        "imageUrl": { "type": "string", "description": "Data URL or HTTP URL of image" },
-        "aspectRatio": { "type": "string", "description": "Aspect ratio of generated image" },
-        "cardTitle": { "type": "string", "description": "Name of transmuted card if applicable" },
-        "createdAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["userId", "imageUrl", "prompt"]
     }
   }
 }

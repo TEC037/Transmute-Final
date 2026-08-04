@@ -1,99 +1,60 @@
 <script lang="ts">
   import type { UserProfile, HabitCard } from '../types';
   import WeeklyHabitChart from './WeeklyHabitChart.svelte';
-  import { userStore, uiStore } from '../lib/stores';
-  import { get } from 'svelte/store';
 
   interface Props {
-    user?: UserProfile;
+    user: UserProfile;
     habits?: HabitCard[];
     isNoirDarkMode?: boolean;
     onOpenAttributeModal?: () => void;
-    onToggleBuff?: (buffId: string) => void;
     onUpdateQuote?: (quote: string) => void;
+    onAllocatePoint?: (attr: 'strength' | 'focus' | 'vitality') => void;
     onOpenOnboardingModal?: () => void;
     onResetProgressToZero?: () => void;
     onToggleNoirDarkMode?: () => void;
   }
 
   let {
-    user: userProp,
+    user,
     habits = [],
     isNoirDarkMode = false,
     onOpenAttributeModal,
-    onToggleBuff,
     onUpdateQuote,
+    onAllocatePoint,
     onOpenOnboardingModal,
     onResetProgressToZero,
     onToggleNoirDarkMode,
   }: Props = $props();
 
-  // Prefer central store; fall back to prop if not populated
-  const user = userStore;
-
   let isEditingQuote = $state(false);
   let quoteInput = $state('');
 
   $effect(() => {
-    // Sync local input with store value (or prop fallback)
-    const u = get(user) || userProp;
-    quoteInput = u?.quote || '';
+    quoteInput = user?.quote || '';
   });
 
   const handleSaveQuote = (e: SubmitEvent) => {
     e.preventDefault();
     if (quoteInput.trim()) {
-      // update central store
-      userStore.update((u) => ({ ...u, quote: quoteInput.trim() } as UserProfile));
-      // call callback for compatibility
       onUpdateQuote?.(quoteInput.trim());
     }
     isEditingQuote = false;
   };
 
   const handleAllocatePoint = (attr: 'strength' | 'focus' | 'vitality') => {
-    userStore.update((u) => {
-      if (!u) return u;
-      if ((u.availablePoints || 0) <= 0) return u;
-      return {
-        ...u,
-        availablePoints: (u.availablePoints || 0) - 1,
-        attributes: {
-          ...u.attributes,
-          [attr]: Math.min(100, (u.attributes as any)[attr] + 5),
-        },
-      } as UserProfile;
-    });
-  };
-
-  const handleToggleBuffLocal = (buffId: string) => {
-    userStore.update((u) => {
-      if (!u) return u;
-      const updatedBuffs = (u.activeBuffs || []).map((b) =>
-        b.id === buffId ? { ...b, active: !b.active } : b
-      );
-      return { ...u, activeBuffs: updatedBuffs } as UserProfile;
-    });
-    // callback for compatibility
-    onToggleBuff?.(buffId);
+    onAllocatePoint?.(attr);
   };
 
   const openAttributeModal = () => {
-    if (onOpenAttributeModal) {
-      onOpenAttributeModal();
-    } else {
-      uiStore.update((s) => ({ ...s, modals: { ...s.modals, attribute: true } }));
-    }
+    onOpenAttributeModal?.();
   };
 
   const openOnboarding = () => {
-    if (onOpenOnboardingModal) onOpenOnboardingModal();
-    else uiStore.update((s) => ({ ...s, modals: { ...s.modals, onboarding: true } }));
+    onOpenOnboardingModal?.();
   };
 
   const resetProgress = () => {
-    if (onResetProgressToZero) onResetProgressToZero();
-    // else: keep callback behaviour; actual reset handled centrally in App or actions
+    onResetProgressToZero?.();
   };
 </script>
 
@@ -102,10 +63,10 @@
   <section class="flex flex-col items-center gap-4 text-center pt-2">
     <div class="relative">
       <!-- Main Portrait Frame -->
-      <div class="w-40 h-40 wobbly-border bg-white p-2 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] rotate-[-2deg] mx-auto">
+      <div class="w-40 h-40 bg-white p-2 border-[3px] border-black shadow-[5px_5px_0_0_rgba(0,0,0,1)] mx-auto">
         <img
-          src={$user.avatarUrl}
-          alt={$user.name}
+          src={user.avatarUrl}
+          alt={user.name}
           class="w-full h-full object-contain grayscale"
         />
       </div>
@@ -113,7 +74,7 @@
       <!-- Speech Bubble -->
       <div class="absolute -top-12 -right-6 md:-right-12 max-w-[200px] z-10">
         {#if isEditingQuote}
-          <form on:submit={handleSaveQuote} class="speech-bubble text-left">
+          <form onsubmit={handleSaveQuote} class="speech-bubble text-left">
             <input
               type="text"
               bind:value={quoteInput}
@@ -129,12 +90,12 @@
         {:else}
           <button
             type="button"
-            on:click={() => (isEditingQuote = true)}
+            onclick={() => (isEditingQuote = true)}
             class="speech-bubble cursor-pointer hover:scale-105 transition-transform text-left bg-white p-0"
             title="Haz clic para editar frase"
           >
-            <p class="font-body text-xs md:text-sm text-black leading-tight font-bold">
-              "{$user.quote}"
+            <p class="text-xs md:text-sm text-black leading-tight font-bold">
+              "{user.quote}"
             </p>
           </button>
         {/if}
@@ -144,32 +105,28 @@
     <!-- Character Title -->
     <div class="mt-3">
       <h2 class="font-headline text-3xl md:text-5xl text-black font-extrabold tracking-tight">
-        {$user.name}
+        {user.name}
       </h2>
       <div class="flex items-center justify-center gap-2 mt-1">
         <span class="font-mono-label text-xs bg-black text-white px-2 py-0.5 font-bold uppercase">
-          Nivel {$user.level} Alquimista
+          Nivel {user.level} Alquimista
         </span>
         <span class="font-mono-label text-xs font-bold text-neutral-600">
-          XP Total: {$user.totalXp}
-        </span>
-        <span class="font-mono-label text-xs bg-amber-300 border-[1.5px] border-black text-black px-2 py-0.5 font-extrabold flex items-center gap-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-          <span class="material-symbols-outlined text-xs">invert_colors</span>
-          {$user.inkDrops ?? 0} Gotas
+          XP Total: {user.totalXp}
         </span>
       </div>
     </div>
   </section>
 
   <!-- RPG Stats Section -->
-  <section class="flex flex-col gap-4 bg-white border-[3px] border-black p-5 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] wobbly-border">
+  <section class="flex flex-col gap-4 bg-white border-[3px] border-black p-5 shadow-[5px_5px_0_0_rgba(0,0,0,1)]">
     <div class="flex justify-between items-center border-b-2 border-black pb-2">
       <h3 class="font-headline text-xl font-extrabold text-black uppercase tracking-tight">
         Atributos Principales
       </h3>
-      {#if $user.availablePoints > 0}
+      {#if user.availablePoints > 0}
         <span class="font-mono-label text-xs bg-black text-white px-2 py-0.5 font-bold animate-pulse">
-          +{$user.availablePoints} PUNTOS DISPONIBLES
+          +{user.availablePoints} PUNTOS DISPONIBLES
         </span>
       {/if}
     </div>
@@ -182,17 +139,17 @@
             <span class="material-symbols-outlined text-black fill-1">fitness_center</span>
             <span class="font-mono-label text-xs font-bold uppercase tracking-wider">Fuerza (Strength)</span>
           </div>
-          <span class="font-mono-label text-xs font-bold">{$user.attributes.strength}%</span>
+          <span class="font-mono-label text-xs font-bold">{user.attributes.strength}%</span>
         </div>
-        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden relative">
+        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] overflow-hidden relative">
           <div
             class="absolute top-0 left-0 h-full bg-black transition-all duration-500"
-            style="width: {$user.attributes.strength}%;"
+            style="width: {user.attributes.strength}%;"
           ></div>
-          <div class="absolute inset-0 halftone-bg pointer-events-none"></div>
+  
         </div>
         <div class="flex gap-2 mt-2">
-          <button on:click={() => handleAllocatePoint('strength')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black">+Punto</button>
+          <button onclick={() => handleAllocatePoint('strength')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">+Punto</button>
         </div>
       </div>
 
@@ -203,17 +160,17 @@
             <span class="material-symbols-outlined text-black fill-1">lightbulb</span>
             <span class="font-mono-label text-xs font-bold uppercase tracking-wider">Enfoque (Focus)</span>
           </div>
-          <span class="font-mono-label text-xs font-bold">{$user.attributes.focus}%</span>
+          <span class="font-mono-label text-xs font-bold">{user.attributes.focus}%</span>
         </div>
-        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden relative">
+        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] overflow-hidden relative">
           <div
             class="absolute top-0 left-0 h-full bg-black transition-all duration-500"
-            style="width: {$user.attributes.focus}%;"
+            style="width: {user.attributes.focus}%;"
           ></div>
-          <div class="absolute inset-0 halftone-bg pointer-events-none"></div>
+  
         </div>
         <div class="flex gap-2 mt-2">
-          <button on:click={() => handleAllocatePoint('focus')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black">+Punto</button>
+          <button onclick={() => handleAllocatePoint('focus')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">+Punto</button>
         </div>
       </div>
 
@@ -224,17 +181,17 @@
             <span class="material-symbols-outlined text-black fill-1">favorite</span>
             <span class="font-mono-label text-xs font-bold uppercase tracking-wider">Vitalidad (Vitality)</span>
           </div>
-          <span class="font-mono-label text-xs font-bold">{$user.attributes.vitality}%</span>
+          <span class="font-mono-label text-xs font-bold">{user.attributes.vitality}%</span>
         </div>
-        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden relative">
+        <div class="h-7 w-full border-[3px] border-black bg-white shadow-[3px_3px_0_0_rgba(0,0,0,1)] overflow-hidden relative">
           <div
             class="absolute top-0 left-0 h-full bg-black transition-all duration-500"
-            style="width: {$user.attributes.vitality}%;"
+            style="width: {user.attributes.vitality}%;"
           ></div>
-          <div class="absolute inset-0 halftone-bg pointer-events-none"></div>
+  
         </div>
         <div class="flex gap-2 mt-2">
-          <button on:click={() => handleAllocatePoint('vitality')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black">+Punto</button>
+          <button onclick={() => handleAllocatePoint('vitality')} class="px-2 py-1 bg-black text-white text-xs font-bold border-[2px] border-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">+Punto</button>
         </div>
       </div>
     </div>
@@ -243,40 +200,17 @@
   <!-- Weekly Habit Performance Chart (Recharts Noir) -->
   {#if habits && habits.length > 0}
     <section class="flex flex-col gap-3">
-      <WeeklyHabitChart {habits} userLevel={$user.level} />
+      <WeeklyHabitChart {habits} userLevel={user.level} />
     </section>
   {/if}
-
-  <!-- Active Buffs -->
-  <section class="flex flex-col gap-3">
-    <div class="flex justify-between items-center border-b-2 border-black w-fit pb-1 pr-4">
-      <h3 class="font-mono-label text-xs font-bold text-neutral-700 uppercase tracking-wider">Active Buffs & Potions</h3>
-    </div>
-
-    <div class="grid grid-cols-3 gap-3 md:gap-4">
-      {#each $user.activeBuffs as buff (buff.id)}
-        <button
-          type="button"
-          on:click={() => handleToggleBuffLocal(buff.id)}
-          class="aspect-square border-[3px] border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center justify-center p-2 text-center transition-all cursor-pointer relative overflow-hidden"
-          title="{buff.name}: {buff.description}"
-        >
-          <div class="absolute inset-0 halftone-bg pointer-events-none"></div>
-          <span class="material-symbols-outlined text-3xl md:text-4xl text-black font-bold mb-1">{buff.icon}</span>
-          <span class="font-mono-label text-[10px] font-bold uppercase tracking-tight line-clamp-1">{buff.name}</span>
-          <span class="text-[9px] text-neutral-600 font-bold mt-0.5">{buff.active ? 'ACTIVO' : 'INACTIVO'}</span>
-        </button>
-      {/each}
-    </div>
-  </section>
 
   <!-- Main Action Buttons & Settings -->
   <section class="mt-2 flex flex-col gap-3">
     <!-- Noir Dark Mode Toggle in Settings -->
     {#if onToggleNoirDarkMode}
-      <div class="bg-white border-[3px] border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] wobbly-border flex items-center justify-between gap-4">
+      <div class="bg-white border-[3px] border-black p-4 shadow-[3px_3px_0_0_rgba(0,0,0,1)] flex items-center justify-between gap-4">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 border-[2px] border-black bg-amber-300 text-black flex items-center justify-center shrink-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rotate-[-2deg]">
+          <div class="w-10 h-10 border-[2px] border-black bg-amber-300 text-black flex items-center justify-center shrink-0 shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
             <span class="material-symbols-outlined text-xl">movie_filter</span>
           </div>
           <div>
@@ -287,8 +221,8 @@
 
         <button
           type="button"
-          on:click={() => onToggleNoirDarkMode?.()}
-          class="px-3.5 py-2 border-[2.5px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+          onclick={() => onToggleNoirDarkMode?.()}
+          class="px-3.5 py-2 border-[2px] border-black font-headline text-xs font-extrabold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
         >
           {isNoirDarkMode ? 'ACTIVADO' : 'DESACTIVADO'}
         </button>
@@ -297,8 +231,8 @@
 
     <button
       type="button"
-      on:click={openAttributeModal}
-      class="w-full bg-white border-[3px] border-black py-4 font-headline text-2xl md:text-3xl font-extrabold text-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] active:translate-x-[4px] active:translate-y-[4px]"
+      onclick={openAttributeModal}
+      class="w-full bg-white border-[2px] border-black py-4 font-headline text-2xl md:text-3xl font-extrabold text-black shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
     >
       <span class="material-symbols-outlined text-3xl">tune</span>
       AJUSTAR ATRIBUTOS
@@ -307,8 +241,8 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <button
         type="button"
-        on:click={openOnboarding}
-        class="py-3 px-4 bg-amber-300 text-black border-[2.5px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px]"
+        onclick={openOnboarding}
+        class="py-3 px-4 bg-amber-300 text-black border-[2px] border-black font-headline text-sm font-extrabold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
       >
         <span class="material-symbols-outlined text-xl">auto_awesome</span>
         VER GUÍA DE BIENVENIDA
@@ -316,8 +250,8 @@
 
       <button
         type="button"
-        on:click={resetProgress}
-        class="py-3 px-4 bg-red-100 text-red-800 border-[2.5px] border-black font-headline text-sm font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px]"
+        onclick={resetProgress}
+        class="py-3 px-4 bg-red-600 text-white border-[2px] border-black font-headline text-sm font-extrabold shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
       >
         <span class="material-symbols-outlined text-xl">restart_alt</span>
         REINICIAR DESDE NIVEL 1

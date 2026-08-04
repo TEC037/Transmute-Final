@@ -1,7 +1,6 @@
 import './index.css';
 import App from './App.svelte';
 import { mount } from 'svelte';
-import { startRewardHandler } from './lib/rewardHandler';
 import { startSyncLoop } from './lib/sync';
 import { auth, onAuthStateChanged } from './lib/firebase';
 import { setAuthToken, clearAuthToken } from './lib/authToken';
@@ -9,9 +8,6 @@ import { setAuthToken, clearAuthToken } from './lib/authToken';
 const app = mount(App, {
   target: document.getElementById('root')!,
 });
-
-// Start reward handler for global reward events
-startRewardHandler();
 
 // Token management: keep Firebase ID token in memory and refresh periodically
 let refreshIntervalHandle: number | null = null;

@@ -5,10 +5,11 @@
 // The server should accept the task payload and perform Firestore writes using admin credentials.
 
 import { auth } from './firebase';
+import { getAuthToken, setAuthToken } from './authToken';
 
-export type SyncTask = {
+type SyncTask = {
   id: string; // unique id (e.g. habit-123 or user-uid + ts)
-  entity: 'habit' | 'user' | 'card' | 'shop' | string;
+  entity: 'habit' | 'user' | string;
   action: 'create' | 'update' | 'delete' | string;
   payload: any | null;
   attempts?: number;
@@ -60,7 +61,7 @@ async function deliverTask(task: SyncTask): Promise<boolean> {
       });
     };
 
-    let token = (window as any).__AUTH_TOKEN__ || localStorage.getItem('authToken');
+    let token = getAuthToken() || localStorage.getItem('authToken');
     let res = await makeFetch(token);
 
     if (res.ok) return true;
@@ -71,7 +72,7 @@ async function deliverTask(task: SyncTask): Promise<boolean> {
         if (auth && (auth as any).currentUser) {
           const refreshed = await (auth as any).currentUser.getIdToken(true);
           if (refreshed) {
-            localStorage.setItem('authToken', refreshed);
+            setAuthToken(refreshed);
             // retry once with refreshed token
             res = await makeFetch(refreshed);
             if (res.ok) return true;
@@ -121,7 +122,7 @@ export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'las
   void processQueue();
 }
 
-export async function processQueue() {
+async function processQueue() {
   if (processing) return;
   processing = true;
   try {
@@ -159,23 +160,45 @@ export async function processQueue() {
 
 // Lightweight loop to periodically try again (in case of transient failures)
 let loopHandle: number | null = null;
-export function startSyncLoop(intervalMs = 30_000) {
-  if (loopHandle != null) return;
-  loopHandle = window.setInterval(() => {
-    void processQueue();
-  }, intervalMs);
-  // try immediately
-  void processQueue();
+
+// Probe the API before delivering so we don't hammer the proxy while the
+// backend is still booting (dev:full starts Vite and the API in parallel).
+async function isApiAvailable(timeoutMs = 3000): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch('/api/health', { signal: ctrl.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
-export function stopSyncLoop() {
+export function startSyncLoop(intervalMs = 30_000) {
+  if (loopHandle != null) return;
+  loopHandle = window.setInterval(async () => {
+    // Only probe the API when there is something queued to deliver.
+    // This avoids pointless proxy requests (and Vite proxy errors) when idle.
+    if (readQueue().length > 0 && (await isApiAvailable())) {
+      await processQueue();
+    }
+  }, intervalMs);
+  // Delay the first attempt so the backend has time to finish booting.
+  setTimeout(async () => {
+    if (readQueue().length > 0 && (await isApiAvailable())) {
+      await processQueue();
+    }
+  }, 3000);
+}
+
+function stopSyncLoop() {
   if (loopHandle != null) {
     clearInterval(loopHandle);
     loopHandle = null;
   }
 }
 
-// Expose for diagnostics / testing
-export function getQueue(): SyncTask[] {
+function getQueue(): SyncTask[] {
   return readQueue();
 }

@@ -1,64 +1,53 @@
 <script lang="ts">
-  import confetti from 'canvas-confetti';
+  import CelebrationStamp from './components/CelebrationStamp.svelte';
+  import Toast from './components/Toast.svelte';
+  import HelpModal from './components/HelpModal.svelte';
   import {
     INITIAL_USER_PROFILE,
     ZERO_USER_PROFILE,
     INITIAL_HABITS,
-    INITIAL_ALBUM_CARDS,
-    INITIAL_SHOP_ITEMS,
   } from './data/initialData';
-  import type { HabitCard, AlbumCard, UserProfile, ShopItem } from './types';
+  import type { HabitCard, UserProfile } from './types';
   import Header from './components/Header.svelte';
   import BottomNav, { type TabType } from './components/BottomNav.svelte';
   import DeckView from './components/DeckView.svelte';
-  import CollectionView from './components/CollectionView.svelte';
-  import ShopView from './components/ShopView.svelte';
   import ProfileView from './components/ProfileView.svelte';
   import CalendarView from './components/CalendarView.svelte';
-  import ImageGeneratorView from './components/ImageGeneratorView.svelte';
   import AuthModal from './components/AuthModal.svelte';
   import OnboardingModal from './components/OnboardingModal.svelte';
-  import BoosterPackModal from './components/BoosterPackModal.svelte';
-  import CardDetailModal from './components/CardDetailModal.svelte';
   import AttributeModal from './components/AttributeModal.svelte';
   import NewHabitModal from './components/NewHabitModal.svelte';
-  import DailySummaryModal from './components/DailySummaryModal.svelte';
+  import DailyShareModal from './components/DailyShareModal.svelte';
   import AssistantModal from './components/AssistantModal.svelte';
 
-  import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, updateDoc, type User } from './lib/firebase';
+  import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, type User } from './lib/firebase';
   import {
     saveHabitsLocal,
     loadHabitsLocal,
     saveUserProfileLocal,
     loadUserProfileLocal,
-    saveCardsLocal,
-    loadCardsLocal,
   } from './lib/storage';
+  import { enqueueSync } from './lib/sync';
 
-  // Load synchronous fallback from LocalStorage initially
+  // Load initial state from LocalStorage
   const loadInitialState = () => {
     try {
-      const savedUser = localStorage.getItem('transmute_user');
-      const savedHabits = localStorage.getItem('transmute_habits');
-      const savedCards = localStorage.getItem('transmute_cards');
+      const savedUser = loadUserProfileLocal();
+      const savedHabits = loadHabitsLocal();
 
-      const rawHabits = savedHabits ? JSON.parse(savedHabits) : INITIAL_HABITS;
-      const normalizedHabits = rawHabits.map((h: HabitCard) => ({
-        ...h,
-        targetType: 'checkbox',
-      }));
+      const normalizedHabits = (savedHabits && savedHabits.length > 0 ? savedHabits : INITIAL_HABITS).map(
+        (h: HabitCard) => ({ ...h, targetType: 'checkbox' })
+      );
 
       return {
-        user: savedUser ? JSON.parse(savedUser) : INITIAL_USER_PROFILE,
+        user: savedUser || INITIAL_USER_PROFILE,
         habits: normalizedHabits,
-        cards: savedCards ? JSON.parse(savedCards) : INITIAL_ALBUM_CARDS,
       };
     } catch (e) {
       console.error('Failed loading state from localStorage', e);
       return {
         user: INITIAL_USER_PROFILE,
         habits: INITIAL_HABITS,
-        cards: INITIAL_ALBUM_CARDS,
       };
     }
   };
@@ -68,8 +57,6 @@
   let activeTab = $state<TabType>('deck');
   let user = $state<UserProfile>(initial.user);
   let habits = $state<HabitCard[]>(initial.habits);
-  let cards = $state<AlbumCard[]>(initial.cards);
-  let shopItems = $state<ShopItem[]>(INITIAL_SHOP_ITEMS);
 
   // Online / Offline state tracking
   let isOnline = $state(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -80,26 +67,6 @@
     };
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
-
-    // Asynchronously hydrate from IndexedDB for rich offline storage
-    (async () => {
-      try {
-        const storedHabits = await loadHabitsLocal();
-        if (storedHabits && storedHabits.length > 0) {
-          habits = storedHabits.map((h) => ({ ...h, targetType: 'checkbox' }));
-        }
-        const storedUser = await loadUserProfileLocal();
-        if (storedUser) {
-          user = storedUser;
-        }
-        const storedCards = await loadCardsLocal();
-        if (storedCards && storedCards.length > 0) {
-          cards = storedCards;
-        }
-      } catch (err) {
-        console.warn('Error hydrating from IndexedDB:', err);
-      }
-    })();
 
     return () => {
       window.removeEventListener('online', updateOnlineStatus);
@@ -129,7 +96,6 @@
               email: u.email || undefined,
               name: data.displayName || u.displayName || user.name,
               avatarUrl: u.photoURL || user.avatarUrl,
-              customApiKey: data.customApiKey || user.customApiKey || '',
               level: data.level ?? user.level,
               currentXp: data.currentXp ?? user.currentXp,
               maxXp: data.maxXp ?? user.maxXp,
@@ -160,6 +126,7 @@
           onboardingModalOpen = true;
         } catch (err) {
           console.error('Failed syncing user doc from Firestore', err);
+          showToast('Error al sincronizar con el servidor', 'error');
         }
       }
     });
@@ -174,17 +141,15 @@
       email: currentUser?.email || undefined,
       name: currentUser?.displayName || user.name || 'Alquimista Novato',
       avatarUrl: currentUser?.photoURL || user.avatarUrl,
-      customApiKey: user.customApiKey || '',
     };
 
     habits = INITIAL_HABITS.map((h) => ({
       ...h,
       completed: false,
+      failed: false,
       currentCount: 0,
       streak: 0,
     }));
-
-    cards = INITIAL_ALBUM_CARDS;
 
     if (currentUser) {
       try {
@@ -202,90 +167,50 @@
         }, { merge: true });
       } catch (err) {
         console.error('Error resetting user state in Firestore', err);
+        showToast('Error al reiniciar progreso', 'error');
       }
     }
 
     onboardingModalOpen = true;
-    confetti({
-      particleCount: 80,
-      spread: 60,
-      origin: { y: 0.5 },
-    });
-  };
-
-  const handleSaveApiKey = async (newKey: string) => {
-    user = { ...user, customApiKey: newKey };
-    if (currentUser) {
-      try {
-        await updateDoc(doc(db, 'users', currentUser.uid), {
-          customApiKey: newKey,
-        });
-      } catch (e) {
-        console.error('Failed updating API key in Firestore', e);
-      }
-    }
-  };
-
-  const handleDeductInkDrops = (amount: number): boolean => {
-    const currentInk = user.inkDrops ?? 0;
-    if (currentInk < amount) return false;
-    user = {
-      ...user,
-      inkDrops: currentInk - amount,
-    };
-    if (currentUser) {
-      try {
-        updateDoc(doc(db, 'users', currentUser.uid), {
-          inkDrops: user.inkDrops,
-        });
-      } catch (e) {
-        console.error('Error updating ink drops in Firestore', e);
-      }
-    }
-    return true;
-  };
-
-  const handleTransmuteToCard = (
-    imageUrl: string,
-    title: string,
-    category: CardCategory = 'alchemy',
-    rarity: CardRarity = 'legendary'
-  ) => {
-    const newCard: AlbumCard = {
-      id: `card-ai-${Date.now()}`,
-      title,
-      category,
-      rarity,
-      icon: 'auto_awesome',
-      imageUrl,
-      status: 'unlocked',
-      levelReq: 1,
-      maxLevel: 5,
-      currentLevel: 1,
-      description: 'Cromo exclusivo transmutado con IA a partir de tus Gotas de Tinta.',
-      lore: `Creado el ${new Date().toLocaleDateString('es-ES')} celebrando tus hábitos y logros alquímicos.`,
-      slotNumber: cards.length + 1,
-    };
-
-    cards = [newCard, ...cards];
-    activeTab = 'collection';
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.5 },
-    });
+    showStamp({ icon: 'auto_awesome', title: 'ALQUIMIA REINICIADA', subtitle: 'Nivel 1 · 0 XP' });
   };
 
   // Modals state
-  let boosterModalOpen = $state(false);
   let newHabitModalOpen = $state(false);
-  let dailySummaryModalOpen = $state(false);
+  let dailyShareModalOpen = $state(false);
   let assistantModalOpen = $state(false);
   let habitToEdit = $state<HabitCard | null>(null);
   let claimedBonusToday = $state(false);
   let attributeModalOpen = $state(false);
   let levelInfoModalOpen = $state(false);
-  let selectedCardForModal = $state<AlbumCard | null>(null);
+  let helpModalOpen = $state(false);
+
+  // Toast state
+  type ToastItem = { id: number; message: string; type: 'error' | 'success' | 'warning' | 'info' | 'undo'; duration?: number; onUndo?: () => void };
+  let toasts = $state<ToastItem[]>([]);
+  let toastCounter = 0;
+
+  const showToast = (message: string, type: ToastItem['type'] = 'info', duration = 4000, onUndo?: () => void) => {
+    const id = ++toastCounter;
+    toasts = [...toasts, { id, message, type, duration, onUndo }];
+  };
+
+  const removeToast = (id: number) => {
+    toasts = toasts.filter((t) => t.id !== id);
+  };
+
+  // Transmutation stamp (celebración alquímica en el lenguaje del sistema)
+  type StampPayload = { icon: string; title: string; subtitle: string; tone?: 'amber' | 'black' };
+  let stamp = $state<StampPayload | null>(null);
+  let stampTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const showStamp = (payload: StampPayload) => {
+    stamp = payload;
+    if (stampTimer) clearTimeout(stampTimer);
+    stampTimer = setTimeout(() => {
+      stamp = null;
+    }, 1500);
+  };
 
   // Noir Dark Mode State (1930s Sepia Film Reel Theme)
   let isNoirDarkMode = $state(
@@ -305,7 +230,7 @@
     isNoirDarkMode = !isNoirDarkMode;
   };
 
-  // Auto-Save to IndexedDB & LocalStorage
+  // Auto-Save to LocalStorage
   $effect(() => {
     saveUserProfileLocal(user);
   });
@@ -314,23 +239,14 @@
     saveHabitsLocal(habits);
   });
 
-  $effect(() => {
-    saveCardsLocal(cards);
-  });
-
   // Level Up Helper
   const checkLevelUp = (currentXp: number, maxXp: number, level: number) => {
     if (currentXp >= maxXp) {
       const newXp = currentXp - maxXp;
       const newLevel = level + 1;
       const newMaxXp = Math.round(maxXp * 1.25);
-      
-      confetti({
-        particleCount: 120,
-        spread: 90,
-        origin: { y: 0.4 },
-        colors: ['#000000', '#ffffff', '#555555'],
-      });
+
+      showStamp({ icon: 'workspace_premium', title: 'NIVEL ' + newLevel, subtitle: '¡Subiste de nivel! +2 pts atributo', tone: 'black' });
 
       return {
         currentXp: newXp,
@@ -342,57 +258,83 @@
     return null;
   };
 
-  const addXp = (amount: number, inkAmount?: number) => {
+  const addXp = (amount: number) => {
     const updatedTotalXp = user.totalXp + amount;
     const updatedCurrentXp = user.currentXp + amount;
-    const inkGained = inkAmount ?? Math.max(5, Math.round(amount / 5));
-    const updatedInk = (user.inkDrops ?? 0) + inkGained;
 
     const levelUpData = checkLevelUp(updatedCurrentXp, user.maxXp, user.level);
 
+    let newUser: UserProfile;
     if (levelUpData) {
-      user = {
+      newUser = {
         ...user,
         totalXp: updatedTotalXp,
         currentXp: levelUpData.currentXp,
         maxXp: levelUpData.maxXp,
         level: levelUpData.level,
         availablePoints: levelUpData.availablePoints,
-        inkDrops: updatedInk,
       };
     } else {
-      user = {
+      newUser = {
         ...user,
         totalXp: updatedTotalXp,
         currentXp: updatedCurrentXp,
-        inkDrops: updatedInk,
       };
     }
+    user = newUser;
+    enqueueSync({ entity: 'user', action: 'update', id: newUser.uid, payload: newUser });
   };
 
   // Habit Actions
   const handleToggleHabit = (id: string) => {
+    const prev = habits.find((h) => h.id === id);
     habits = habits.map((h) => {
       if (h.id === id) {
         const nextCompleted = !h.completed;
         if (nextCompleted) {
-          const inkBonus = h.inkReward || Math.max(5, Math.round(h.xpReward / 5));
-          addXp(h.xpReward, inkBonus);
-          confetti({
-            particleCount: 35,
-            spread: 60,
-            origin: { y: 0.8 },
-            colors: ['#000000', '#333333', '#ffffff', '#ffd700'],
-          });
+          addXp(h.xpReward);
+          showStamp({ icon: 'auto_awesome', title: 'TRANSMUTADO', subtitle: '+' + h.xpReward + ' XP' });
         }
         return {
           ...h,
           completed: nextCompleted,
+          failed: false,
           streak: nextCompleted ? h.streak + 1 : Math.max(0, h.streak - 1),
         };
       }
       return h;
     });
+    const changed = habits.find((h) => h.id === id);
+    if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
+
+    if (prev && !prev.completed) {
+      showToast('Hábito completado', 'undo', 5000, () => {
+        habits = habits.map((h) => h.id === id ? { ...h, completed: false, failed: false, streak: prev.streak } : h);
+      });
+    }
+  };
+
+  const handleFailHabit = (id: string) => {
+    const prev = habits.find((h) => h.id === id);
+    habits = habits.map((h) =>
+      h.id === id
+        ? { ...h, completed: false, failed: true, streak: 0 }
+        : h
+    );
+    const changed = habits.find((h) => h.id === id);
+    if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
+
+    showToast('Fallo reconocido', 'undo', 5000, () => {
+      habits = habits.map((h) => h.id === id ? { ...h, failed: false, streak: prev?.streak ?? 0 } : h);
+    });
+  };
+
+  const handleRestoreHabit = (id: string) => {
+    habits = habits.map((h) =>
+      h.id === id ? { ...h, completed: false, failed: false } : h
+    );
+    const changed = habits.find((h) => h.id === id);
+    if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
   };
 
   const handleIncrementCounter = (id: string) => {
@@ -401,23 +343,20 @@
         const nextCount = h.currentCount + 1;
         const reachedTarget = nextCount >= h.targetCount;
         if (reachedTarget && h.currentCount < h.targetCount) {
-          const inkBonus = h.inkReward || Math.max(5, Math.round(h.xpReward / 5));
-          addXp(h.xpReward, inkBonus);
-          confetti({
-            particleCount: 45,
-            spread: 65,
-            origin: { y: 0.8 },
-            colors: ['#000000', '#333333', '#ffffff', '#ffd700'],
-          });
+          addXp(h.xpReward);
+          showStamp({ icon: 'auto_awesome', title: 'TRANSMUTADO', subtitle: '+' + h.xpReward + ' XP' });
         }
         return {
           ...h,
           currentCount: nextCount,
           completed: reachedTarget,
+          failed: false,
         };
       }
       return h;
     });
+    const changed = habits.find((h) => h.id === id);
+    if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
   };
 
   const handleSaveHabit = (
@@ -426,11 +365,13 @@
   ) => {
     if (id) {
       habits = habits.map((h) => (h.id === id ? ({ ...h, ...habitData } as HabitCard) : h));
+      const changed = habits.find((h) => h.id === id);
+      if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
+      showToast('Hábito actualizado', 'success');
     } else {
       const newHabit: HabitCard = {
         title: habitData.title || 'Nuevo Hábito',
         category: habitData.category || 'Diario',
-        icon: habitData.icon || 'fitness_center',
         streak: 0,
         targetType: habitData.targetType || 'checkbox',
         currentCount: 0,
@@ -439,18 +380,27 @@
         completed: false,
         minLevel: habitData.minLevel || 1,
         xpReward: habitData.xpReward || 20,
-        tags: habitData.tags || ['General'],
         id: `habit-${Date.now()}`,
       };
       habits = [newHabit, ...habits];
+      enqueueSync({ entity: 'habit', action: 'create', id: newHabit.id, payload: newHabit });
+      showToast('Hábito creado', 'success');
     }
     habitToEdit = null;
   };
 
   const handleDeleteHabit = (id: string) => {
+    const deleted = habits.find((h) => h.id === id);
     habits = habits.filter((h) => h.id !== id);
+    enqueueSync({ entity: 'habit', action: 'delete', id, payload: null });
     if (habitToEdit?.id === id) {
       habitToEdit = null;
+    }
+    if (deleted) {
+      showToast('Hábito eliminado', 'warning', 5000, () => {
+        habits = [deleted, ...habits];
+        enqueueSync({ entity: 'habit', action: 'create', id: deleted.id, payload: deleted });
+      });
     }
   };
 
@@ -467,48 +417,7 @@
   const handleClaimDailyBonus = () => {
     addXp(25);
     claimedBonusToday = true;
-    confetti({
-      particleCount: 80,
-      spread: 60,
-      origin: { y: 0.5 },
-    });
-  };
-
-  // Card Actions
-  const handleGrantCards = (grantedCards: AlbumCard[]) => {
-    cards = cards.map((c) => {
-      const match = grantedCards.find((gc) => gc.id === c.id);
-      if (match) {
-        return {
-          ...c,
-          status: 'unlocked',
-          currentLevel: Math.min(c.maxLevel, Math.max(1, c.currentLevel + 1)),
-        };
-      }
-      return c;
-    });
-  };
-
-  const handleUpgradeCard = (cardId: string) => {
-    cards = cards.map((c) => {
-      if (c.id === cardId && c.currentLevel < c.maxLevel) {
-        return {
-          ...c,
-          currentLevel: c.currentLevel + 1,
-        };
-      }
-      return c;
-    });
-
-    if (selectedCardForModal && selectedCardForModal.id === cardId) {
-      selectedCardForModal = {
-        ...selectedCardForModal,
-        currentLevel: Math.min(
-          selectedCardForModal.maxLevel,
-          selectedCardForModal.currentLevel + 1
-        ),
-      };
-    }
+    showStamp({ icon: 'workspace_premium', title: 'BONO RECLAMADO', subtitle: '+25 XP' });
   };
 
   // Profile Actions
@@ -524,57 +433,21 @@
     };
   };
 
-  const handleToggleBuff = (buffId: string) => {
-    user = {
-      ...user,
-      activeBuffs: user.activeBuffs.map((b) =>
-        b.id === buffId ? { ...b, active: !b.active } : b
-      ),
-    };
-  };
-
   const handleUpdateQuote = (quote: string) => {
     user = { ...user, quote };
   };
-
-  // Shop Action
-  const handleBuyShopItem = (item: ShopItem) => {
-    if (item.priceInk !== undefined) {
-      const currentInk = user.inkDrops ?? 0;
-      if (currentInk < item.priceInk) return;
-      user = {
-        ...user,
-        inkDrops: currentInk - item.priceInk,
-      };
-    } else if (item.priceXp !== undefined) {
-      if (user.currentXp < item.priceXp) return;
-      user = {
-        ...user,
-        currentXp: user.currentXp - item.priceXp,
-      };
-    } else {
-      return;
-    }
-
-    if (item.category === 'pack' || item.id.startsWith('booster-')) {
-      boosterModalOpen = true;
-    } else if (item.id === 'potion-focus' || item.id.includes('caffeine')) {
-      handleToggleBuff('caffeine');
-    } else if (item.id === 'potion-str' || item.id.includes('shield')) {
-      handleToggleBuff('guard');
-    }
-  };
 </script>
 
-<div class="min-h-screen bg-[#f9f9f9] text-[#1a1c1c] flex flex-col font-body">
+<div class="min-h-screen bg-[#f9f9f9] text-[#1a1c1c] flex flex-col">
   <!-- Header -->
   <Header
     {user}
-    {currentUser}
     {isOnline}
     onOpenLevelInfo={() => (levelInfoModalOpen = true)}
     onOpenAuthModal={() => (authModalOpen = true)}
     onOpenAssistant={() => (assistantModalOpen = true)}
+    onOpenHelp={() => (helpModalOpen = true)}
+    onToggleNoirDarkMode={handleToggleNoirDarkMode}
   />
 
   <!-- Main View Area -->
@@ -584,47 +457,30 @@
         {habits}
         userLevel={user.level}
         onToggleHabit={handleToggleHabit}
+        onFailHabit={handleFailHabit}
+        onRestoreHabit={handleRestoreHabit}
         onIncrementCounter={handleIncrementCounter}
         onOpenNewHabitModal={handleOpenNewHabitModal}
         onEditHabitRequest={handleOpenEditHabit}
         onDeleteHabit={handleDeleteHabit}
-        onOpenDailySummary={() => (dailySummaryModalOpen = true)}
-      />
-    {:else if activeTab === 'collection'}
-      <CollectionView
-        {cards}
-        onSelectCard={(c) => (selectedCardForModal = c)}
-        onOpenBoosterPackModal={() => (boosterModalOpen = true)}
+        onOpenDailyShare={() => (dailyShareModalOpen = true)}
       />
     {:else if activeTab === 'calendar'}
       <CalendarView
         {habits}
         userLevel={user.level}
       />
-    {:else if activeTab === 'studio'}
-      <ImageGeneratorView
-        {currentUser}
-        {user}
-        customApiKey={user.customApiKey || ''}
-        onOpenAuthModal={() => (authModalOpen = true)}
-        onTransmuteToCard={handleTransmuteToCard}
-        onDeductInkDrops={handleDeductInkDrops}
-      />
-    {:else if activeTab === 'shop'}
-      <ShopView
-        {user}
-        items={shopItems}
-        onBuyItem={handleBuyShopItem}
-      />
     {:else if activeTab === 'me'}
       <ProfileView
         {user}
         {habits}
+        {isNoirDarkMode}
         onOpenAttributeModal={() => (attributeModalOpen = true)}
-        onToggleBuff={handleToggleBuff}
         onUpdateQuote={handleUpdateQuote}
+        onAllocatePoint={handleAllocatePoint}
         onOpenOnboardingModal={() => (onboardingModalOpen = true)}
         onResetProgressToZero={handleResetProgressToZero}
+        onToggleNoirDarkMode={handleToggleNoirDarkMode}
       />
     {/if}
   </main>
@@ -646,22 +502,7 @@
   <AuthModal
     isOpen={authModalOpen}
     {currentUser}
-    customApiKey={user.customApiKey || ''}
     onClose={() => (authModalOpen = false)}
-    onSaveApiKey={handleSaveApiKey}
-  />
-  <BoosterPackModal
-    isOpen={boosterModalOpen}
-    onClose={() => (boosterModalOpen = false)}
-    onGrantCards={handleGrantCards}
-    availableCards={cards}
-  />
-
-  <CardDetailModal
-    card={selectedCardForModal}
-    isOpen={!!selectedCardForModal}
-    onClose={() => (selectedCardForModal = null)}
-    onUpgradeCard={handleUpgradeCard}
   />
 
   <AttributeModal
@@ -682,12 +523,13 @@
     onDeleteHabit={handleDeleteHabit}
   />
 
-  <DailySummaryModal
-    isOpen={dailySummaryModalOpen}
+  <DailyShareModal
+    isOpen={dailyShareModalOpen}
     {habits}
     userLevel={user.level}
+    userName={user.name}
     {claimedBonusToday}
-    onClose={() => (dailySummaryModalOpen = false)}
+    onClose={() => (dailyShareModalOpen = false)}
     onClaimBonus={handleClaimDailyBonus}
   />
 
@@ -703,20 +545,37 @@
     onNavigateTab={(t) => (activeTab = t)}
   />
 
-  <!-- Floating Assistant Launcher Button -->
-  <button
-    type="button"
-    onclick={() => (assistantModalOpen = true)}
-    class="fixed bottom-20 right-4 z-40 bg-amber-300 text-black border-[3px] border-black p-3 rounded-full shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:bg-amber-400 hover:scale-105 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 group font-mono font-black text-xs"
-    title="Asistente de Flujos AI"
-  >
-    <span class="material-symbols-outlined text-2xl group-hover:rotate-12 transition-transform">auto_awesome</span>
-    <span class="hidden sm:inline-block uppercase tracking-tight pr-1 font-extrabold">Asistente AI</span>
-  </button>
+  <HelpModal
+    isOpen={helpModalOpen}
+    onClose={() => (helpModalOpen = false)}
+  />
+
+  <!-- Floating Action Buttons -->
+  <div class="fixed bottom-20 right-4 z-40 flex flex-col gap-2">
+    <button
+      type="button"
+      onclick={handleOpenNewHabitModal}
+      class="bg-amber-300 text-black border-[3px] border-black p-3 rounded-full shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:bg-amber-400 hover:scale-105 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 group font-mono font-black text-xs"
+      title="Nuevo Hábito"
+    >
+      <span class="material-symbols-outlined text-2xl group-hover:rotate-90 transition-transform">add</span>
+      <span class="hidden sm:inline-block uppercase tracking-tight pr-1 font-extrabold">Nuevo</span>
+    </button>
+
+    <button
+      type="button"
+      onclick={() => (assistantModalOpen = true)}
+      class="bg-black text-white border-[3px] border-black p-3 rounded-full shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:bg-neutral-800 hover:scale-105 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 group font-mono font-black text-xs"
+      title="Asistente de Flujos AI"
+    >
+      <span class="material-symbols-outlined text-2xl group-hover:rotate-12 transition-transform">auto_awesome</span>
+      <span class="hidden sm:inline-block uppercase tracking-tight pr-1 font-extrabold">Asistente</span>
+    </button>
+  </div>
 
   {#if levelInfoModalOpen}
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-      <div class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] relative">
+      <div class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto">
         <button
           type="button"
           onclick={() => (levelInfoModalOpen = false)}
@@ -740,8 +599,29 @@
               style="width: {Math.min(100, Math.round((user.currentXp / user.maxXp) * 100))}%;"
             ></div>
           </div>
+          <div class="mt-4 p-3 border-[2px] border-black bg-neutral-50 text-left">
+            <p class="font-mono-label text-[11px] font-bold text-neutral-700 leading-relaxed">
+              <strong>Cada nivel</strong> te da <strong>2 puntos de atributo</strong> para asignar a Fuerza, Enfoque o Vitalidad.
+              El XP requerido crece ×1.25 por nivel.
+            </p>
+          </div>
         </div>
       </div>
     </div>
   {/if}
+
+  {#if stamp}
+    <CelebrationStamp {...stamp} />
+  {/if}
+
+  <!-- Toast notifications -->
+  {#each toasts as toast (toast.id)}
+    <Toast
+      message={toast.message}
+      type={toast.type}
+      duration={toast.duration}
+      onUndo={toast.onUndo}
+      onClose={() => removeToast(toast.id)}
+    />
+  {/each}
 </div>

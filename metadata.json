@@ -1,6 +1,6 @@
 {
-  "name": "Transmute - El Álbum de Cromos",
-  "description": "Aplicación de hábitos y álbum de cromos coleccionables con estética vintage de dibujos animados noir de los años 30.",
-  "requestFramePermissions": ["microphone"],
+  "name": "Transmute - Hábitos y Alquimia",
+  "description": "Aplicación de hábitos y gamificación con estética vintage de dibujos animados noir de los años 30.",
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

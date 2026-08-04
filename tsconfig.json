@@ -11,16 +11,20 @@
     ],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "baseUrl": "./",
     "isolatedModules": true,
     "moduleDetection": "force",
     "allowJs": true,
-    "jsx": "react-jsx",
+    "esModuleInterop": true,
     "paths": {
       "@/*": [
         "./*"
-      ]
+      ],
+      "$components/*": ["src/components/*"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts", "vitest.setup.ts"],
+  "exclude": ["node_modules", "dist", "server"]
 }

@@ -16,15 +16,6 @@ import {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
-  collection,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  serverTimestamp,
 } from 'firebase/firestore';
 
 // Load config from firebase-applet-config.json
@@ -73,14 +64,5 @@ export {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
-  collection,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  serverTimestamp,
   type User,
 };

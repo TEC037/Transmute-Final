@@ -16,14 +16,14 @@ const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 /**
  * Get date string YYYY-MM-DD for a given Date
  */
-export function formatDateKey(date: Date): string {
+function formatDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
 /**
  * Get the last 7 days array (from 6 days ago to today)
  */
-export function getLast7Days(): Date[] {
+function getLast7Days(): Date[] {
   const days: Date[] = [];
   const today = new Date();
   for (let i = 6; i >= 0; i--) {
@@ -128,7 +128,6 @@ export interface CalendarDayStat {
   totalCount: number;
   percentage: number;
   xpEarned: number;
-  inkEarned: number;
   streakActive: boolean;
 }
 
@@ -157,7 +156,7 @@ export function getMonthlyCalendarData(
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
 
-  let rawHistory: Record<string, { completedCount: number; totalCount: number; xpEarned: number; inkEarned?: number }> = {};
+  let rawHistory: Record<string, { completedCount: number; totalCount: number; xpEarned: number }> = {};
   try {
     const saved = localStorage.getItem(HISTORY_KEY);
     if (saved) {
@@ -173,13 +172,11 @@ export function getMonthlyCalendarData(
   // Update today's entry in rawHistory dynamically
   const todayCompleted = activeHabits.filter((h) => h.completed).length;
   const todayXp = activeHabits.filter((h) => h.completed).reduce((sum, h) => sum + h.xpReward, 0);
-  const todayInk = activeHabits.filter((h) => h.completed).reduce((sum, h) => sum + (h.inkReward || 10), 0);
 
   rawHistory[todayKey] = {
     completedCount: todayCompleted,
     totalCount: totalActive,
     xpEarned: todayXp,
-    inkEarned: todayInk,
   };
 
   const firstDayOfMonth = new Date(year, month, 1);
@@ -210,7 +207,6 @@ export function getMonthlyCalendarData(
       totalCount: totalActive,
       percentage: 0,
       xpEarned: 0,
-      inkEarned: 0,
       streakActive: false,
     });
   }
@@ -230,14 +226,12 @@ export function getMonthlyCalendarData(
     let completedCount = 0;
     let totalCount = totalActive;
     let xpEarned = 0;
-    let inkEarned = 0;
     let percentage = 0;
 
     if (rawHistory[key]) {
       completedCount = rawHistory[key].completedCount;
       totalCount = rawHistory[key].totalCount || totalActive;
       xpEarned = rawHistory[key].xpEarned || 0;
-      inkEarned = rawHistory[key].inkEarned || completedCount * 10;
       percentage = Math.round((completedCount / Math.max(1, totalCount)) * 100);
     } else if (!isFuture) {
       // Deterministic realistic estimation based on habits streaks for historical days
@@ -246,7 +240,6 @@ export function getMonthlyCalendarData(
       completedCount = Math.round((mockPct / 100) * totalActive);
       percentage = mockPct;
       xpEarned = completedCount * 15;
-      inkEarned = completedCount * 5;
     }
 
     if (!isFuture) {
@@ -270,7 +263,6 @@ export function getMonthlyCalendarData(
       totalCount,
       percentage,
       xpEarned,
-      inkEarned,
       streakActive: percentage >= 50 && !isFuture,
     });
   }
@@ -293,7 +285,6 @@ export function getMonthlyCalendarData(
       totalCount: totalActive,
       percentage: 0,
       xpEarned: 0,
-      inkEarned: 0,
       streakActive: false,
     });
   }

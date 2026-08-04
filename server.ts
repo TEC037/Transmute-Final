@@ -4,8 +4,204 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { getApps, getApp, initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 dotenv.config();
+
+// Firebase Admin (used by /api/sync). Uses Application Default Credentials:
+// Cloud Run injects them automatically; locally set GOOGLE_APPLICATION_CREDENTIALS.
+let db: Firestore | null = null;
+try {
+  const app = getApps().length ? getApp() : initializeApp();
+  db = getFirestore(app);
+} catch (err) {
+  console.warn('Firebase admin initialization skipped (sync endpoint disabled):', err);
+}
+
+const SENSITIVE_FIELDS = new Set(['roles', 'isAdmin', 'createdAt', 'updatedAt', 'lastLogin']);
+
+// Per-user daily quota for the assistant (in-memory; resets at server restart)
+const ASSISTANT_DAILY_LIMIT = Number(process.env.ASSISTANT_DAILY_LIMIT || 30);
+const quotaByUid = new Map<string, { date: string; count: number }>();
+
+function consumeQuota(uid: string): { allowed: boolean; remaining: number } {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = quotaByUid.get(uid);
+  if (!entry || entry.date !== today) {
+    quotaByUid.set(uid, { date: today, count: 1 });
+    return { allowed: true, remaining: ASSISTANT_DAILY_LIMIT - 1 };
+  }
+  if (entry.count >= ASSISTANT_DAILY_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+  entry.count += 1;
+  return { allowed: true, remaining: ASSISTANT_DAILY_LIMIT - entry.count };
+}
+
+// ---- AI provider resolution ----
+// Priority in `auto`: OpenRouter > Cloudflare > Gemini (last fallback).
+// On failure, the next provider is tried automatically.
+type AiProvider = 'gemini' | 'openrouter' | 'cloudflare';
+
+function hasProviderCreds(p: AiProvider): boolean {
+  if (p === 'openrouter') return Boolean(process.env.OPENROUTER_API_KEY);
+  if (p === 'cloudflare') return Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID);
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
+function resolveProviders(): AiProvider[] {
+  const forced = process.env.MODEL_PROVIDER?.toLowerCase();
+  if (forced && ['openrouter', 'cloudflare', 'gemini'].includes(forced)) {
+    return [forced as AiProvider];
+  }
+  const order: AiProvider[] = ['openrouter', 'cloudflare', 'gemini'];
+  return order.filter(hasProviderCreds);
+}
+
+async function generateWithProvider(p: AiProvider, systemInstruction: string, promptText: string, temperature: number): Promise<string> {
+  if (p === 'openrouter') {
+    const apiKey = process.env.OPENROUTER_API_KEY!;
+    const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3-0324';
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: promptText },
+        ],
+        temperature,
+        response_format: { type: 'json_object' },
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`OpenRouter error ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content ?? '';
+  }
+
+  if (p === 'cloudflare') {
+    const token = process.env.CLOUDFLARE_API_TOKEN!;
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID!;
+    const model = process.env.CLOUDFLARE_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: promptText },
+          ],
+        }),
+      }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Cloudflare Workers AI error ${res.status}: ${text}`);
+    }
+    const data = await res.json();
+    return data?.result?.response ?? '';
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY!;
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+  const response = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    contents: promptText,
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      temperature,
+    },
+  });
+  return response.text ?? '';
+}
+
+async function generateContent(systemInstruction: string, promptText: string, temperature: number): Promise<string> {
+  const providers = resolveProviders();
+  const errors: string[] = [];
+  for (const p of providers) {
+    try {
+      return await generateWithProvider(p, systemInstruction, promptText, temperature);
+    } catch (err: any) {
+      errors.push(`[${p}] ${err.message || err}`);
+      console.warn(`AI provider ${p} failed, trying next...`, err.message || err);
+    }
+  }
+  if (errors.length) {
+    throw new Error(`Todos los proveedores de IA fallaron: ${errors.join(' | ')}`);
+  }
+  throw new Error('No hay ningún proveedor de IA configurado. Añade OPENROUTER_API_KEY, CLOUDFLARE_* o GEMINI_API_KEY.');
+}
+
+function sanitizePayload(payload: any) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const out: any = Array.isArray(payload) ? [] : {};
+  for (const k of Object.keys(payload)) {
+    if (SENSITIVE_FIELDS.has(k)) continue;
+    const v = (payload as any)[k];
+    out[k] = v;
+  }
+  return out;
+}
+
+async function verifyToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = String(req.header('authorization') || '');
+  if (!authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  const idToken = authHeader.slice(7);
+
+  // Dev mode (dev.mjs sets DEV_INSECURE_AUTH): accept any non-empty bearer token
+  // so the app stays testable locally regardless of Admin SDK/ADC state.
+  if (process.env.DEV_INSECURE_AUTH === 'true' && idToken.length > 0) {
+    (req as any).auth = { uid: 'dev-user' };
+    return next();
+  }
+
+  if (!db) {
+    return res.status(503).json({ error: 'Auth service unavailable: Firebase Admin not configured' });
+  }
+
+  try {
+    const decoded = await getAuth().verifyIdToken(idToken);
+    (req as any).auth = decoded;
+    return next();
+  } catch (err) {
+    console.warn('Token verify failed', err);
+    return res.status(401).json({ error: 'Invalid ID token' });
+  }
+}
+
+function mapEntityToCollection(entity: string) {
+  switch (entity) {
+    case 'habit':
+      return 'habits';
+    case 'user':
+    case 'users':
+      return 'users';
+    default:
+      return entity;
+  }
+}
 
 // Compute currentFile/currentDir safe for both ESM (import.meta.url) and CommonJS (__filename)
 const currentFile = (typeof __filename !== 'undefined')
@@ -20,7 +216,7 @@ const currentDir = (typeof __dirname !== 'undefined')
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
   app.use(express.json({ limit: '20mb' }));
 
@@ -28,198 +224,114 @@ async function startServer() {
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
+  app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
-  // Image Generation Endpoint
-  app.post('/api/generate-image', async (req, res) => {
-    try {
-      const { prompt, aspectRatio, userApiKey, style } = req.body;
-
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ error: 'Prompt es requerido' });
-      }
-
-      // Prioritize user's logged-in custom API key, fallback to system GEMINI_API_KEY
-      const apiKey = (userApiKey && typeof userApiKey === 'string' && userApiKey.trim() !== '')
-        ? userApiKey.trim()
-        : process.env.GEMINI_API_KEY;
-
-      if (!apiKey) {
-        return res.status(400).json({
-          error: 'No se encontró API Key de Gemini. Por favor proporciona tu API key en los ajustes de tu cuenta o activa las credenciales en el sistema.',
-        });
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-
-      let fullPrompt = prompt;
-      if (style && style !== 'none') {
-        fullPrompt = `${prompt}, in ${style} art style, vintage comic book ink lineart halftone texture high quality`;
-      }
-
-      // Generate image using imagen-3.0-generate-002
-      const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
-        prompt: fullPrompt,
-        config: {
-          numberOfImages: 1,
-          outputMimeType: 'image/jpeg',
-          aspectRatio: aspectRatio || '1:1',
-        },
-      });
-
-      if (!response.generatedImages || response.generatedImages.length === 0) {
-        throw new Error('No se pudo generar la imagen con el modelo Imagen 3.');
-      }
-
-      const imageBytes = response.generatedImages[0].image.imageBytes;
-      const imageUrl = `data:image/jpeg;base64,${imageBytes}`;
-
-      return res.json({ imageUrl, prompt: fullPrompt });
-    } catch (err: any) {
-      console.error('Error generating image:', err);
-      return res.status(500).json({
-        error: err.message || 'Error al generar la imagen',
-      });
+  // Offline sync endpoint: applies queued Firestore writes from the client
+  app.post('/api/sync', verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'Sync unavailable: Firebase admin not initialized' });
+    const task = req.body;
+    if (!task || !task.entity || !task.action || typeof task.id === 'undefined') {
+      return res.status(400).json({ error: 'Invalid task payload' });
     }
-  });
 
-  // Image Editing / Transformation Endpoint
-  app.post('/api/edit-image', async (req, res) => {
+    const uid = (req as any).auth?.uid;
+    const entity = String(task.entity);
+    const action = String(task.action);
+    const docId = String(task.id);
+    const payload = task.payload ?? null;
+
+    // Security checks
+    if ((entity === 'users' || entity === 'user') && docId !== uid) {
+      return res.status(403).json({ error: 'Cannot modify other user profiles' });
+    }
+    if (payload && payload.userId && payload.userId !== uid) {
+      return res.status(403).json({ error: 'Payload userId mismatch' });
+    }
+
     try {
-      const { prompt, base64Image, userApiKey } = req.body;
+      const colName = mapEntityToCollection(entity);
+      const col = db.collection(colName);
 
-      if (!prompt || !base64Image) {
-        return res.status(400).json({ error: 'Prompt e imagen base son requeridos' });
+      if (action === 'create' || action === 'update') {
+        const safePayload = sanitizePayload(payload);
+        await col.doc(docId).set({ ...safePayload, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return res.status(200).json({ ok: true });
+      } else if (action === 'delete') {
+        await col.doc(docId).delete();
+        return res.status(200).json({ ok: true });
+      } else {
+        return res.status(400).json({ error: 'Unknown action' });
       }
-
-      const apiKey = (userApiKey && typeof userApiKey === 'string' && userApiKey.trim() !== '')
-        ? userApiKey.trim()
-        : process.env.GEMINI_API_KEY;
-
-      if (!apiKey) {
-        return res.status(400).json({
-          error: 'No se encontró API Key de Gemini.',
-        });
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-
-      const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
-
-      let generatedImageUrl: string | null = null;
-
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { text: `Modifica esta imagen según las instrucciones: ${prompt}. Genera una nueva versión visualmente pulida.` },
-                {
-                  inlineData: {
-                    mimeType: 'image/jpeg',
-                    data: cleanBase64,
-                  },
-                },
-              ],
-            },
-          ],
-          config: {
-            responseModalities: ['IMAGE', 'TEXT'],
-          },
-        });
-
-        const candidates = response.candidates;
-        if (candidates && candidates[0]?.content?.parts) {
-          for (const part of candidates[0].content.parts) {
-            if (part.inlineData) {
-              generatedImageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-              break;
-            }
-          }
-        }
-      } catch (genErr) {
-        console.warn('Gemini 2.5 flash image generation attempt failed, falling back to Imagen 3:', genErr);
-      }
-
-      if (!generatedImageUrl) {
-        // Fallback to imagen-3.0-generate-002 with contextual prompt
-        const fallbackResp = await ai.models.generateImages({
-          model: 'imagen-3.0-generate-002',
-          prompt: `Modificación de cromo alquímico: ${prompt}. Estilo ilustración vintage, entintado a mano, alta calidad`,
-          config: {
-            numberOfImages: 1,
-            outputMimeType: 'image/jpeg',
-            aspectRatio: '1:1',
-          },
-        });
-        if (fallbackResp.generatedImages?.[0]?.image?.imageBytes) {
-          generatedImageUrl = `data:image/jpeg;base64,${fallbackResp.generatedImages[0].image.imageBytes}`;
-        }
-      }
-
-      if (!generatedImageUrl) {
-        throw new Error('No se pudo generar ni editar la imagen.');
-      }
-
-      return res.json({ imageUrl: generatedImageUrl, prompt });
     } catch (err: any) {
-      console.error('Error editing image:', err);
-      return res.status(500).json({
-        error: err.message || 'Error al editar la imagen',
-      });
+      console.error('Sync error:', err);
+      return res.status(500).json({ ok: false, error: String(err.message || err) });
     }
   });
 
   // Assistant & Workflow Automation Endpoint (Gemini 3.6 Flash)
-  app.post('/api/assistant', async (req, res) => {
+  // Requires a valid Firebase ID token (login-gated) + per-user daily quota.
+  app.post('/api/assistant', verifyToken, async (req, res) => {
     try {
-      const { message, userContext, userApiKey, mode } = req.body;
-
-      const apiKey = (userApiKey && typeof userApiKey === 'string' && userApiKey.trim() !== '')
-        ? userApiKey.trim()
-        : process.env.GEMINI_API_KEY;
-
-      if (!apiKey) {
-        return res.status(400).json({
-          error: 'No se encontró API Key de Gemini. Configura tu clave en los ajustes para interactuar con el Asistente Alquímico.',
+      const uid = (req as any).auth?.uid;
+      if (!uid) {
+        return res.status(401).json({ error: 'Debes iniciar sesión para usar el Asistente Alquímico.' });
+      }
+      const quota = consumeQuota(uid);
+      if (!quota.allowed) {
+        return res.status(429).json({
+          error: `Has alcanzado el límite diario de ${ASSISTANT_DAILY_LIMIT} consultas al Asistente. Vuelve mañana o continúa con tus hábitos.`,
         });
       }
 
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
+      const { message, userContext, mode } = req.body;
 
-      const systemInstruction = `Eres el "Gran Alquimista Noir", un asistente inteligente de flujo de trabajo de los años 1930. Tu propósito es simplificar radicalmente la experiencia del usuar[...]\nAnaliza la solicitud del usuario junto con su estado actual de hábitos y progreso.\n\nResponde SIEMPRE en formato JSON estructurado con el siguiente esquema:\n{\n  "reply": "Tu mensaje amigable en personaje de alquimista vintage (máximo 3 párrafos, usando metáforas de tinta y transmutación)",\n  "suggestedActions": [\n    {\n      "type": "create_habit" | "mark_complete" | "recommend_shop" | "quick_routine",\n      "label": "Nombre corto de la acción (ej: 'Crear Hábito: Caminar 20 min')",\n      "payload": { ... } // Para create_habit: { title, category, frequency, xpReward, inkReward, minLevel, icon }. Para mark_complete: { habitTitle }. Para quick_routine: array de hábitos.\n    }\n  ]\n}\n\nSi el usuario pide crear una rutina o mejorar sus hábitos, genera automáticamente de 1 a 3 hábitos sugeridos en "suggestedActions".\nSi el usuario dice que ya hizo una tarea (ej: "ya leí 10 páginas"), incluye una acción "mark_complete" con el nombre del hábito correspondiente.\nSi no hay acciones directas, devuelve "suggestedActions": [].\n\nContexto actual del usuario:\n- Nivel: ${userContext?.level || 1}\n- XP: ${userContext?.currentXp || 0}\n- Gotas de Tinta: ${userContext?.inkDrops || 0}\n- Hábitos actuales (${userContext?.habits?.length || 0}): ${JSON.stringify(userContext?.habits?.map((h: any) => ({ title: h.title, completed: h.completed, category: h.category })) || [])}`;
+      const isReflection = mode === 'reflection';
 
-      const promptText = mode === 'quick_routine'
+      const contextBlock = [
+        `Contexto actual del usuario:`,
+        `- Nombre: ${userContext?.name || 'Desconocido'}`,
+        `- Nivel: ${userContext?.level || 1} (XP actual: ${userContext?.currentXp || 0} / ${userContext?.maxXp || 100})`,
+        `- XP total acumulado: ${userContext?.totalXp || 0}`,
+        `- Atributos: Fuerza ${userContext?.attributes?.strength ?? 'n/d'}, Enfoque ${userContext?.attributes?.focus ?? 'n/d'}, Vitalidad ${userContext?.attributes?.vitality ?? 'n/d'} (puntos disponibles: ${userContext?.availablePoints ?? 0})`,
+        `- Hábitos (${userContext?.habits?.length || 0}):`,
+      ];
+
+      if (Array.isArray(userContext?.habits)) {
+        userContext.habits.forEach((h: any) => {
+          const state = h.completed ? 'completado HOY' : 'pendiente HOY';
+          const locked = typeof h.minLevel === 'number' && h.minLevel > (userContext?.level || 1)
+            ? ` [BLOQUEADO hasta nivel ${h.minLevel}]`
+            : '';
+          contextBlock.push(
+            `  - "${h.title}" (categoría: ${h.category || 'n/d'}, racha: ${h.streak ?? 0} días, ${h.currentCount ?? 0}/${h.targetCount ?? 1}, XP: ${h.xpReward ?? 0}, minLevel: ${h.minLevel ?? 1}) — ${state}${locked}`
+          );
+        });
+      }
+
+      const contextText = contextBlock.join('\n');
+
+      const reflectionSystemInstruction = `Eres el "Motor Analítico de Transmute". A partir de los datos conductuales del usuario, generas un "Reflejo Alquímico" estructurado en exactamente TRES secciones con estos encabezados:\n\n## 1. Diagnóstico\n## 2. Análisis de Estado\n## 3. Vector de Corrección\n\nREGLAS ESTRICTAS:\n- PROHIBIDO lenguaje motivacional, felicitaciones, elogios o ánimos vacíos ("¡puedes lograrlo!", "¡vas muy bien!", "sigue así"). Prohibido celebrar.\n- Prohibidas frases de aliento, resúmenes de logros o cierres positivos genéricos.\n- Usa exclusivamente terminología de sistemas, física o alquimia: inercia, densidad, fricción, entropía, energía de activación, umbral, desintegración, atractor, conversión, cinética.\n- Sé directo, sobrio y analítico. Trata al usuario como un sistema a optimizar, no como una persona a motivar.\n- Cada afirmación debe derivarse de los datos provistos. No inventes datos, no hagas conjeturas no soportadas.\n- Incluye cifras concretas donde aplique: XP restante para subir de nivel o desbloquear, rachas en riesgo de desintegración, tasas de conversión diaria, costo de re-ignición.\n- La sección "Vector de Corrección" debe contener pasos accionables, medibles y priorizados. Nunca genéricos ("esfuérzate más", "sé constante").\n- Responde SIEMPRE en JSON: {"reply": "texto en Markdown con las 3 secciones y sus encabezados exactos", "suggestedActions": []}.\n\nDatos conductuales:\n${contextText}`;
+
+      const noirSystemInstruction = `Eres el "Gran Alquimista Noir", un asistente inteligente de flujo de trabajo de los años 1930. Tu propósito es simplificar radicalmente la experiencia del usuario.\nAnaliza la solicitud del usuario junto con su estado actual de hábitos y progreso.\n\nResponde SIEMPRE en formato JSON estructurado con el siguiente esquema:\n{\n  "reply": "Tu mensaje amigable en personaje de alquimista vintage (máximo 3 párrafos, usando metáforas de tinta y transmutación)",\n  "suggestedActions": [\n    {\n      "type": "create_habit" | "mark_complete" | "quick_routine",\n      "label": "Nombre corto de la acción (ej: 'Crear Hábito: Caminar 20 min')",\n      "payload": { ... } // Para create_habit: { title, category, frequency, xpReward, minLevel, icon }. Para mark_complete: { habitTitle }. Para quick_routine: array de hábitos.\n    }\n  ]\n}\n\nSi el usuario pide crear una rutina o mejorar sus hábitos, genera automáticamente de 1 a 3 hábitos sugeridos en "suggestedActions".\nSi el usuario dice que ya hizo una tarea (ej: "ya leí 10 páginas"), incluye una acción "mark_complete" con el nombre del hábito correspondiente.\nSi no hay acciones directas, devuelve "suggestedActions": [].\n\n${contextText}`;
+
+      const systemInstruction = isReflection ? reflectionSystemInstruction : noirSystemInstruction;
+
+      const promptText = isReflection
+        ? 'Genera el Reflejo Alquímico completo a partir de los datos conductuales del usuario.'
+        : mode === 'quick_routine'
         ? `Genera una rutina de 3 hábitos equilibrados y motivadores para simplificar mi día sobre: ${message || 'Productividad y Bienestar'}.`
         : mode === 'streak_analysis'
         ? `Analiza mi rendimiento y da consejos prácticos para mantener mis rachas diarias.`
         : (message || 'Hola Alquimista, ¿cómo puedes simplificar mi rutina hoy?');
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: promptText,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          temperature: 0.7,
-        },
-      });
+      const responseText = await generateContent(systemInstruction, promptText, isReflection ? 0.4 : 0.7);
 
       let parsedData: any = { reply: 'Transmutación completada.', suggestedActions: [] };
-      if (response.text) {
+      if (responseText) {
         try {
-          parsedData = JSON.parse(response.text.trim());
+          parsedData = JSON.parse(responseText.trim());
         } catch {
-          parsedData = { reply: response.text, suggestedActions: [] };
+          parsedData = { reply: responseText, suggestedActions: [] };
         }
       }
 
@@ -232,19 +344,21 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(currentDir ?? process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  // Vite middleware / static serving (skipped in API-only mode, e.g. `dev:full`)
+  if (process.env.API_ONLY !== 'true') {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(currentDir ?? process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {
