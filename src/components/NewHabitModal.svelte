@@ -31,18 +31,19 @@
     if (!title.trim() || title.trim().length < 2) return;
     if (title.trim().length > 60) return;
 
-    const habitData: Partial<HabitCard> = {
-      title: title.trim(),
-      targetCount: 1,
-      unit: 'sesión',
-      xpReward: 20,
-      minLevel: 1,
-    };
-    // Only new habits get a default type; editing must preserve the existing
-    // targetType (e.g. a counter habit) instead of resetting it to checkbox.
-    if (!habitToEdit?.id) {
-      habitData.targetType = 'checkbox';
-    }
+    // Editing only changes the title: sending just `title` preserves the
+    // habit's targetCount/xpReward/unit/minLevel/targetType instead of
+    // resetting them to the create-defaults below.
+    const habitData: Partial<HabitCard> = habitToEdit?.id
+      ? { title: title.trim() }
+      : {
+          title: title.trim(),
+          targetCount: 1,
+          unit: 'sesión',
+          xpReward: 20,
+          minLevel: 1,
+          targetType: 'checkbox',
+        };
 
     onSaveHabit(habitData, habitToEdit?.id);
     onClose();

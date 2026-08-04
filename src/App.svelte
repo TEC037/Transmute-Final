@@ -30,7 +30,7 @@
   import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
   import { persistTodayHistory, todayKey, clearHistory } from './lib/habitHistory';
   import { getAuthToken } from './lib/authToken';
-  import { mergeHabits, isUntouchedDefaults } from './lib/mergeHabits';
+  import { resolveHydration } from './lib/mergeHabits';
   import { popIn, popOut, overlayFade } from './lib/modalTransitions';
 
   // Modals are lazy-loaded on first open so heavy chunks (e.g. html-to-image
@@ -261,10 +261,10 @@
         Object.entries(getDeletedHabitIds()).filter(([, t]) => now - Date.parse(t) < 60 * 24 * 3600 * 1000)
       );
 
-      // Fresh install: cloud copy is authoritative instead of union-merged.
-      const merged = isUntouchedDefaults(habits)
-        ? remote
-        : mergeHabits(habits, remote, tombstones);
+      // Fresh install (no tombstones): the cloud copy is authoritative. After
+      // a "reset to zero" the tombstones exist, so the merge path suppresses
+      // the old cloud habits instead of reverting the reset.
+      const merged = resolveHydration(habits, remote, tombstones);
 
       const changed =
         merged.length !== habits.length ||
@@ -517,13 +517,17 @@
   };
 
   const handleRestoreHabit = (id: string) => {
+    const prev = habits.find((h) => h.id === id);
     habits = habits.map((h) =>
       h.id === id
-        ? { ...h, completed: false, failed: false, updatedAt: new Date().toISOString() }
+        ? { ...h, completed: false, failed: false, streak: prev?.streak ?? h.streak, updatedAt: new Date().toISOString() }
         : h
     );
     const changed = habits.find((h) => h.id === id);
     if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
+    // Un-completing must refund the XP awarded on completion (clamped, no
+    // level-down) — otherwise complete → restore → complete farms XP forever.
+    if (prev?.completed) addXp(-(prev.xpReward ?? 0));
   };
 
   const handleIncrementCounter = (id: string) => {

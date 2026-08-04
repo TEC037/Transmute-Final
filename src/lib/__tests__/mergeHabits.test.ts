@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeHabits, isUntouchedDefaults } from '../mergeHabits';
+import { mergeHabits, isUntouchedDefaults, resolveHydration } from '../mergeHabits';
 import { INITIAL_HABITS } from '../../data/initialData';
 import type { HabitCard } from '../../types';
 
@@ -104,5 +104,45 @@ describe('isUntouchedDefaults', () => {
 
   it('returns false when the deck length differs', () => {
     expect(isUntouchedDefaults([habit({ id: 'x' })])).toBe(false);
+  });
+});
+
+describe('resolveHydration', () => {
+  const staleRemote = INITIAL_HABITS.map((h) => ({
+    ...h,
+    completed: true,
+    streak: 12,
+    updatedAt: '2026-08-01T10:00:00.000Z',
+  }));
+
+  it('treats a pristine deck as a fresh install when there are no tombstones', () => {
+    const resolved = resolveHydration(INITIAL_HABITS, staleRemote);
+
+    expect(resolved.map((h) => h.id)).toEqual(staleRemote.map((h) => h.id));
+    expect(resolved[0].completed).toBe(true);
+    expect(resolved[0].streak).toBe(12);
+  });
+
+  it('does NOT revert a "reset to zero" when tombstones exist', () => {
+    const tombstones = Object.fromEntries(
+      INITIAL_HABITS.map((h) => [h.id, '2026-08-04T10:00:00.000Z'])
+    );
+    const resolved = resolveHydration(INITIAL_HABITS, staleRemote, tombstones);
+
+    // The pristine (reset) deck wins; stale cloud habits are suppressed.
+    expect(resolved.map((h) => h.id)).toEqual(INITIAL_HABITS.map((h) => h.id));
+    expect(resolved.some((h) => h.completed)).toBe(false);
+    expect(resolved.some((h) => h.streak > 0)).toBe(false);
+  });
+
+  it('keeps cloud habits created after the reset when tombstones exist', () => {
+    const freshCloud = habit({ id: 'new-after-reset', title: 'Nuevo', updatedAt: '2026-08-05T10:00:00.000Z' });
+    const tombstones = Object.fromEntries(
+      INITIAL_HABITS.map((h) => [h.id, '2026-08-04T10:00:00.000Z'])
+    );
+    const resolved = resolveHydration(INITIAL_HABITS, [freshCloud], tombstones);
+
+    expect(resolved.map((h) => h.id)).toEqual([...INITIAL_HABITS.map((h) => h.id), 'new-after-reset']);
+    expect(resolved[resolved.length - 1].title).toBe('Nuevo');
   });
 });

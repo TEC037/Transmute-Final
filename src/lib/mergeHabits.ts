@@ -79,3 +79,22 @@ export function isUntouchedDefaults(habits: HabitCard[]): boolean {
     );
   });
 }
+
+/**
+ * Decide the hydration result from a local deck, the cloud copy and local
+ * delete-tombstones.
+ *
+ * - Fresh install (pristine defaults AND no tombstones): the cloud is
+ *   authoritative, so a reinstall adopts the cloud deck.
+ * - Otherwise (normal state, or a "reset to zero" which registers tombstones):
+ *   union-merge with LWW, suppressing any cloud habit a local tombstone
+ *   deleted. This prevents a reset from being reverted by the cloud copy.
+ */
+export function resolveHydration(
+  local: HabitCard[],
+  remote: HabitCard[],
+  tombstones: Record<string, string> = {}
+): HabitCard[] {
+  const hasTombstones = Object.keys(tombstones).length > 0;
+  return isUntouchedDefaults(local) && !hasTombstones ? remote : mergeHabits(local, remote, tombstones);
+}
