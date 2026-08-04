@@ -69,7 +69,7 @@ export function persistTodayHistory(habits: HabitCard[], userLevel: number) {
   }
 }
 
-function todayKey(): string {
+export function todayKey(): string {
   return formatDateKey(new Date());
 }
 

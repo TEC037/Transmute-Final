@@ -33,12 +33,16 @@
 
     const habitData: Partial<HabitCard> = {
       title: title.trim(),
-      targetType: 'checkbox',
       targetCount: 1,
       unit: 'sesión',
       xpReward: 20,
       minLevel: 1,
     };
+    // Only new habits get a default type; editing must preserve the existing
+    // targetType (e.g. a counter habit) instead of resetting it to checkbox.
+    if (!habitToEdit?.id) {
+      habitData.targetType = 'checkbox';
+    }
 
     onSaveHabit(habitData, habitToEdit?.id);
     onClose();

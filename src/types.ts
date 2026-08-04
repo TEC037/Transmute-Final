@@ -11,6 +11,8 @@ export interface HabitCard {
   failed?: boolean;
   minLevel: number;
   xpReward: number;
+  /** ISO timestamp of the last local/server modification (last-write-wins merge). */
+  updatedAt?: string;
 }
 
 export interface UserProfile {

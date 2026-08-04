@@ -6,7 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { getApps, getApp, initializeApp } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 dotenv.config();
 var db = null;
@@ -230,6 +230,26 @@ async function startServer() {
       }
     } catch (err) {
       console.error("Sync error:", err);
+      return res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+  app.get("/api/habits", verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Habits unavailable: Firebase admin not initialized" });
+    try {
+      const uid = req.auth?.uid;
+      const snap = await db.collection("habits").where("ownerUid", "==", uid).get();
+      const habits = snap.docs.map((d) => {
+        const data = d.data();
+        const t = data.updatedAt;
+        return {
+          ...data,
+          id: d.id,
+          updatedAt: t instanceof Timestamp ? t.toDate().toISOString() : void 0
+        };
+      });
+      return res.json({ habits });
+    } catch (err) {
+      console.error("Error fetching habits:", err);
       return res.status(500).json({ ok: false, error: String(err.message || err) });
     }
   });

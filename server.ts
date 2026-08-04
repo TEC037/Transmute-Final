@@ -5,7 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { getApps, getApp, initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 dotenv.config();
@@ -289,6 +289,29 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('Sync error:', err);
+      return res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // Hydration endpoint: returns all habits owned by the authenticated user,
+  // used by the client to restore habits on a new device / after reinstall.
+  app.get('/api/habits', verifyToken, async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'Habits unavailable: Firebase admin not initialized' });
+    try {
+      const uid = (req as any).auth?.uid;
+      const snap = await db.collection('habits').where('ownerUid', '==', uid).get();
+      const habits = snap.docs.map((d) => {
+        const data = d.data();
+        const t = data.updatedAt;
+        return {
+          ...data,
+          id: d.id,
+          updatedAt: t instanceof Timestamp ? t.toDate().toISOString() : undefined,
+        };
+      });
+      return res.json({ habits });
+    } catch (err: any) {
+      console.error('Error fetching habits:', err);
       return res.status(500).json({ ok: false, error: String(err.message || err) });
     }
   });

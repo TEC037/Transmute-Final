@@ -3,6 +3,8 @@ import type { HabitCard, UserProfile } from '../types';
 const LOCAL_KEYS = {
   USER: 'transmute_user',
   HABITS: 'transmute_habits',
+  DELETED_HABITS: 'transmute_deleted_habit_ids',
+  BONUS_DATE: 'transmute_daily_bonus_date',
 };
 
 function readJSON<T>(key: string): T | null {
@@ -37,4 +39,42 @@ export function saveUserProfileLocal(user: UserProfile): void {
 
 export function loadUserProfileLocal(): UserProfile | null {
   return readJSON<UserProfile>(LOCAL_KEYS.USER);
+}
+
+// Deleted-habit tombstones: id -> ISO timestamp of local deletion. Used when
+// merging cloud habits so a habit deleted on this device doesn't resurrect
+// from an older remote copy.
+export function getDeletedHabitIds(): Record<string, string> {
+  return readJSON<Record<string, string>>(LOCAL_KEYS.DELETED_HABITS) || {};
+}
+
+export function markHabitDeleted(id: string): void {
+  const ids = getDeletedHabitIds();
+  ids[id] = new Date().toISOString();
+  writeJSON(LOCAL_KEYS.DELETED_HABITS, ids);
+}
+
+export function unmarkHabitDeleted(id: string): void {
+  const ids = getDeletedHabitIds();
+  if (id in ids) {
+    delete ids[id];
+    writeJSON(LOCAL_KEYS.DELETED_HABITS, ids);
+  }
+}
+
+// Daily bonus: store the local date (YYYY-MM-DD) it was last claimed.
+export function getClaimedBonusDate(): string | null {
+  try {
+    return localStorage.getItem(LOCAL_KEYS.BONUS_DATE);
+  } catch {
+    return null;
+  }
+}
+
+export function setClaimedBonusDate(date: string): void {
+  try {
+    localStorage.setItem(LOCAL_KEYS.BONUS_DATE, date);
+  } catch {
+    // ignore storage errors
+  }
 }

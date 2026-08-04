@@ -27,9 +27,16 @@
     loadHabitsLocal,
     saveUserProfileLocal,
     loadUserProfileLocal,
+    getDeletedHabitIds,
+    markHabitDeleted,
+    unmarkHabitDeleted,
+    getClaimedBonusDate,
+    setClaimedBonusDate,
   } from './lib/storage';
   import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
-  import { persistTodayHistory } from './lib/habitHistory';
+  import { persistTodayHistory, todayKey } from './lib/habitHistory';
+  import { getAuthToken } from './lib/authToken';
+  import { mergeHabits, isUntouchedDefaults } from './lib/mergeHabits';
   import { popIn, popOut, overlayFade } from './lib/modalTransitions';
 
   // Load initial state from LocalStorage
@@ -39,7 +46,7 @@
       const savedHabits = loadHabitsLocal();
 
       const normalizedHabits = (savedHabits && savedHabits.length > 0 ? savedHabits : INITIAL_HABITS).map(
-        (h: HabitCard) => ({ ...h, targetType: 'checkbox' })
+        (h: HabitCard) => ({ ...h, targetType: h.targetType || 'checkbox' })
       );
 
       return {
@@ -167,6 +174,8 @@
           }
           // Accompany user right after login!
           onboardingModalOpen = true;
+          // Restore cloud habits after the profile doc is synced.
+          void hydrateHabitsFromCloud(u.uid);
         } catch (err) {
           console.error('Failed syncing user doc from Firestore', err);
           showToast('Error al sincronizar con el servidor', 'error');
@@ -178,7 +187,47 @@
     return () => unsubscribe();
   });
 
+  // Restore cloud habits on login (new device / reinstall / multi-device).
+  const hydrateHabitsFromCloud = async (uid: string) => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch('/api/habits', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        console.warn('Hydration fetch failed', res.status);
+        return;
+      }
+      const data = await res.json();
+      const remote = (Array.isArray(data?.habits) ? data.habits : []) as HabitCard[];
+      if (!remote.length) return;
+
+      // Prune tombstones older than 60 days (they only guard against old copies).
+      const now = Date.now();
+      const tombstones = Object.fromEntries(
+        Object.entries(getDeletedHabitIds()).filter(([, t]) => now - Date.parse(t) < 60 * 24 * 3600 * 1000)
+      );
+
+      // Fresh install: cloud copy is authoritative instead of union-merged.
+      const merged = isUntouchedDefaults(habits)
+        ? remote
+        : mergeHabits(habits, remote, tombstones);
+
+      const changed =
+        merged.length !== habits.length ||
+        merged.some((h, i) => h.id !== habits[i].id || h.updatedAt !== habits[i].updatedAt);
+      if (changed) {
+        habits = merged;
+        showToast('Hábitos restaurados desde la nube', 'success');
+      }
+    } catch (err) {
+      console.warn('Hydration failed', err);
+    }
+  };
+
   const handleResetProgressToZero = async () => {
+    const previousHabits = habits;
     user = {
       ...ZERO_USER_PROFILE,
       uid: currentUser?.uid,
@@ -194,6 +243,13 @@
       currentCount: 0,
       streak: 0,
     }));
+
+    // Tombstone + cloud-delete the previous habits so they don't resurrect
+    // from the cloud on the next hydration (multi-device consistency).
+    for (const h of previousHabits) {
+      markHabitDeleted(h.id);
+      if (currentUser) enqueueSync({ entity: 'habit', action: 'delete', id: h.id, payload: null });
+    }
 
     if (currentUser) {
       try {
@@ -224,7 +280,9 @@
   let dailyShareModalOpen = $state(false);
   let assistantModalOpen = $state(false);
   let habitToEdit = $state<HabitCard | null>(null);
-  let claimedBonusToday = $state(false);
+  let claimedBonusToday = $state(
+    typeof localStorage !== 'undefined' && getClaimedBonusDate() === todayKey()
+  );
   let attributeModalOpen = $state(false);
   let levelInfoModalOpen = $state(false);
   let helpModalOpen = $state(false);
@@ -285,26 +343,38 @@
 
   // Level Up Helper
   const checkLevelUp = (currentXp: number, maxXp: number, level: number) => {
-    if (currentXp >= maxXp) {
-      const newXp = currentXp - maxXp;
-      const newLevel = level + 1;
-      const newMaxXp = Math.round(maxXp * 1.25);
-
-      showStamp({ icon: 'workspace_premium', title: 'NIVEL ' + newLevel, subtitle: '¡Subiste de nivel! +2 pts atributo', tone: 'black' });
-
-      return {
-        currentXp: newXp,
-        maxXp: newMaxXp,
-        level: newLevel,
-        availablePoints: user.availablePoints + 2,
-      };
+    let xp = Math.max(0, currentXp);
+    let max = maxXp;
+    let lvl = level;
+    let points = 0;
+    // Apply repeated level-ups (a large XP gain can cross several levels).
+    // 20 is a generous safety cap against pathological inputs.
+    for (let i = 0; i < 20 && xp >= max; i++) {
+      xp -= max;
+      max = Math.round(max * 1.25);
+      lvl += 1;
+      points += 2;
     }
-    return null;
+    if (points === 0) return null;
+
+    showStamp({
+      icon: 'workspace_premium',
+      title: 'NIVEL ' + lvl,
+      subtitle: '¡Subiste de nivel! +' + points + ' pts atributo',
+      tone: 'black',
+    });
+
+    return {
+      currentXp: xp,
+      maxXp: max,
+      level: lvl,
+      availablePoints: user.availablePoints + points,
+    };
   };
 
   const addXp = (amount: number) => {
-    const updatedTotalXp = user.totalXp + amount;
-    const updatedCurrentXp = user.currentXp + amount;
+    const updatedTotalXp = Math.max(0, user.totalXp + amount);
+    const updatedCurrentXp = Math.max(0, user.currentXp + amount);
 
     const levelUpData = checkLevelUp(updatedCurrentXp, user.maxXp, user.level);
 
@@ -344,6 +414,7 @@
           completed: nextCompleted,
           failed: false,
           streak: nextCompleted ? h.streak + 1 : Math.max(0, h.streak - 1),
+          updatedAt: new Date().toISOString(),
         };
       }
       return h;
@@ -352,8 +423,19 @@
     if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
 
     if (prev && !prev.completed) {
+      const awardedXp = changed?.xpReward ?? 0;
       showToast('Hábito completado', 'undo', 5000, () => {
-        habits = habits.map((h) => h.id === id ? { ...h, completed: false, failed: false, streak: prev.streak } : h);
+        habits = habits.map((h) =>
+          h.id === id
+            ? { ...h, completed: false, failed: false, streak: prev.streak, updatedAt: new Date().toISOString() }
+            : h
+        );
+        const reverted = habits.find((h) => h.id === id);
+        if (reverted) {
+          // Refund the XP awarded on completion (clamped, and no level-down).
+          addXp(-awardedXp);
+          enqueueSync({ entity: 'habit', action: 'update', id, payload: reverted });
+        }
       });
     }
   };
@@ -362,20 +444,28 @@
     const prev = habits.find((h) => h.id === id);
     habits = habits.map((h) =>
       h.id === id
-        ? { ...h, completed: false, failed: true, streak: 0 }
+        ? { ...h, completed: false, failed: true, streak: 0, updatedAt: new Date().toISOString() }
         : h
     );
     const changed = habits.find((h) => h.id === id);
     if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
 
     showToast('Fallo reconocido', 'undo', 5000, () => {
-      habits = habits.map((h) => h.id === id ? { ...h, failed: false, streak: prev?.streak ?? 0 } : h);
+      habits = habits.map((h) =>
+        h.id === id
+          ? { ...h, failed: false, streak: prev?.streak ?? 0, updatedAt: new Date().toISOString() }
+          : h
+      );
+      const reverted = habits.find((h) => h.id === id);
+      if (reverted) enqueueSync({ entity: 'habit', action: 'update', id, payload: reverted });
     });
   };
 
   const handleRestoreHabit = (id: string) => {
     habits = habits.map((h) =>
-      h.id === id ? { ...h, completed: false, failed: false } : h
+      h.id === id
+        ? { ...h, completed: false, failed: false, updatedAt: new Date().toISOString() }
+        : h
     );
     const changed = habits.find((h) => h.id === id);
     if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
@@ -395,6 +485,7 @@
           currentCount: nextCount,
           completed: reachedTarget,
           failed: false,
+          updatedAt: new Date().toISOString(),
         };
       }
       return h;
@@ -408,7 +499,9 @@
     id?: string
   ) => {
     if (id) {
-      habits = habits.map((h) => (h.id === id ? ({ ...h, ...habitData } as HabitCard) : h));
+      habits = habits.map((h) =>
+        (h.id === id ? ({ ...h, ...habitData, updatedAt: new Date().toISOString() } as HabitCard) : h)
+      );
       const changed = habits.find((h) => h.id === id);
       if (changed) enqueueSync({ entity: 'habit', action: 'update', id: changed.id, payload: changed });
       showToast('Hábito actualizado', 'success');
@@ -425,6 +518,7 @@
         minLevel: habitData.minLevel || 1,
         xpReward: habitData.xpReward || 20,
         id: `habit-${Date.now()}`,
+        updatedAt: new Date().toISOString(),
       };
       habits = [newHabit, ...habits];
       enqueueSync({ entity: 'habit', action: 'create', id: newHabit.id, payload: newHabit });
@@ -436,12 +530,14 @@
   const handleDeleteHabit = (id: string) => {
     const deleted = habits.find((h) => h.id === id);
     habits = habits.filter((h) => h.id !== id);
+    markHabitDeleted(id);
     enqueueSync({ entity: 'habit', action: 'delete', id, payload: null });
     if (habitToEdit?.id === id) {
       habitToEdit = null;
     }
     if (deleted) {
       showToast('Hábito eliminado', 'warning', 5000, () => {
+        unmarkHabitDeleted(id);
         habits = [deleted, ...habits];
         enqueueSync({ entity: 'habit', action: 'create', id: deleted.id, payload: deleted });
       });
@@ -461,6 +557,7 @@
   const handleClaimDailyBonus = () => {
     addXp(25);
     claimedBonusToday = true;
+    setClaimedBonusDate(todayKey());
     showStamp({ icon: 'workspace_premium', title: 'BONO RECLAMADO', subtitle: '+25 XP' });
   };
 
@@ -585,7 +682,9 @@
     {user}
     {habits}
     onAddHabit={(h) => {
-      habits = [h, ...habits];
+      const stamped = { ...h, updatedAt: new Date().toISOString() } as HabitCard;
+      habits = [stamped, ...habits];
+      enqueueSync({ entity: 'habit', action: 'create', id: stamped.id, payload: stamped });
     }}
     onToggleHabit={handleToggleHabit}
     onNavigateTab={(t) => (activeTab = t)}
