@@ -153,4 +153,83 @@ describe('DeckView', () => {
     fireEvent.click(getByTitle('Volver a pendientes'));
     expect(onRestoreHabit).toHaveBeenCalledWith('1');
   });
+
+  test('shows skeleton cards while syncing with Firebase', () => {
+    const { getByText } = renderDeck([makeHabit()], { loading: true });
+    expect(getByText('Sincronizando con Firebase…')).toBeInTheDocument();
+  });
+
+  test('shows syncing chip while the sync queue is delivering', () => {
+    const { getByText } = renderDeck([makeHabit()], { syncStatus: 'syncing' });
+    expect(getByText('Sincronizando…')).toBeInTheDocument();
+  });
+
+  test('shows offline chip when disconnected', () => {
+    const { getByText } = renderDeck([makeHabit()], { syncStatus: 'offline' });
+    expect(getByText('Sin conexión')).toBeInTheDocument();
+  });
+
+  test('completed habit shows a streak chip for emotional reinforcement', () => {
+    const { getByText } = renderDeck([makeHabit({ completed: true, streak: 3 })]);
+    expect(getByText('Racha 3 DÍAS')).toBeInTheDocument();
+  });
+
+  test('dragging past the threshold paints the card border green before commit', () => {
+    vi.useFakeTimers();
+    const { container } = renderDeck([makeHabit()]);
+    const card = getPendingCard(container);
+    fireEvent.pointerDown(card, { clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(card, { clientX: 200, clientY: 0 });
+    expect(card.style.borderColor).toBe('rgb(21, 128, 61)');
+    fireEvent.pointerUp(card, { clientX: 200, clientY: 0 });
+    vi.advanceTimersByTime(400);
+  });
+
+  test('arrow right completes the habit via keyboard', () => {
+    vi.useFakeTimers();
+    const onToggleHabit = vi.fn();
+    const { container } = renderDeck([makeHabit()], { onToggleHabit });
+    fireEvent.keyDown(getPendingCard(container), { key: 'ArrowRight' });
+    vi.advanceTimersByTime(400);
+    expect(onToggleHabit).toHaveBeenCalledWith('1');
+  });
+
+  test('arrow left opens the failure modal via keyboard', () => {
+    const { container, getByText } = renderDeck([makeHabit()]);
+    fireEvent.keyDown(getPendingCard(container), { key: 'ArrowLeft' });
+    expect(getByText('Reconocimiento del Fallo')).toBeInTheDocument();
+  });
+
+  test('visible Completar button completes the habit (gesture fallback)', () => {
+    vi.useFakeTimers();
+    const onToggleHabit = vi.fn();
+    const { getByRole } = renderDeck([makeHabit()], { onToggleHabit });
+    fireEvent.click(getByRole('button', { name: /Completar/ }));
+    vi.advanceTimersByTime(400);
+    expect(onToggleHabit).toHaveBeenCalledWith('1');
+  });
+
+  test('visible Fallo button opens the failure modal (gesture fallback)', () => {
+    const { getByRole, getByText } = renderDeck([makeHabit()]);
+    fireEvent.click(getByRole('button', { name: /Fallo/ }));
+    expect(getByText('Reconocimiento del Fallo')).toBeInTheDocument();
+  });
+
+  test('Completar button on a counter increments instead of completing', () => {
+    const onIncrementCounter = vi.fn();
+    const { getByRole } = renderDeck(
+      [makeHabit({ targetType: 'counter', currentCount: 0, targetCount: 3 })],
+      { onIncrementCounter }
+    );
+    fireEvent.click(getByRole('button', { name: /\+1/i }));
+    expect(onIncrementCounter).toHaveBeenCalledWith('1');
+  });
+
+  test('Realizados header shows total XP earned today', () => {
+    const { getByText } = renderDeck([
+      makeHabit({ id: '1', completed: true, xpReward: 10 }),
+      makeHabit({ id: '2', completed: true, xpReward: 20 }),
+    ]);
+    expect(getByText('+30 XP HOY')).toBeInTheDocument();
+  });
 });

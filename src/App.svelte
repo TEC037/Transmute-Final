@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import CelebrationStamp from './components/CelebrationStamp.svelte';
   import Toast from './components/Toast.svelte';
   import HelpModal from './components/HelpModal.svelte';
@@ -27,7 +28,7 @@
     saveUserProfileLocal,
     loadUserProfileLocal,
   } from './lib/storage';
-  import { enqueueSync } from './lib/sync';
+  import { enqueueSync, subscribeSyncPending } from './lib/sync';
   import { popIn, popOut, overlayFade } from './lib/modalTransitions';
 
   // Load initial state from LocalStorage
@@ -61,6 +62,36 @@
 
   // Online / Offline state tracking
   let isOnline = $state(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // Firebase sync status: how many tasks are queued for delivery
+  let syncPending = $state(0);
+  // Initial hydration: skeleton loading until auth + Firestore settle
+  let isHydrating = $state(true);
+  let authResolved = $state(false);
+  let minHydrationElapsed = $state(false);
+
+  onMount(() => {
+    const unsub = subscribeSyncPending((n) => {
+      syncPending = n;
+    });
+    const t = setTimeout(() => {
+      minHydrationElapsed = true;
+    }, 800);
+    return () => {
+      clearTimeout(t);
+      unsub();
+    };
+  });
+
+  $effect(() => {
+    if (authResolved && minHydrationElapsed) {
+      isHydrating = false;
+    }
+  });
+
+  const syncStatus = $derived(
+    !isOnline ? 'offline' : syncPending > 0 ? 'syncing' : 'synced'
+  );
 
   $effect(() => {
     const updateOnlineStatus = () => {
@@ -130,6 +161,7 @@
           showToast('Error al sincronizar con el servidor', 'error');
         }
       }
+      authResolved = true;
     });
 
     return () => unsubscribe();
@@ -457,6 +489,8 @@
       <DeckView
         {habits}
         userLevel={user.level}
+        {isHydrating}
+        {syncStatus}
         onToggleHabit={handleToggleHabit}
         onFailHabit={handleFailHabit}
         onRestoreHabit={handleRestoreHabit}

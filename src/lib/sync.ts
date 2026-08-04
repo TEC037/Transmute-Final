@@ -108,6 +108,33 @@ async function deliverTask(task: SyncTask): Promise<boolean> {
 
 let processing = false;
 
+export type SyncPendingListener = (pending: number) => void;
+const pendingListeners = new Set<SyncPendingListener>();
+
+export function getSyncPending(): number {
+  return readQueue().length;
+}
+
+function notifyPending() {
+  const pending = getSyncPending();
+  pendingListeners.forEach((cb) => {
+    try {
+      cb(pending);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+// Subscribe to sync queue changes (for skeleton/loading UI).
+export function subscribeSyncPending(cb: SyncPendingListener): () => void {
+  pendingListeners.add(cb);
+  cb(getSyncPending());
+  return () => {
+    pendingListeners.delete(cb);
+  };
+}
+
 export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'lastAttemptAt'>) {
   const q = readQueue();
   const enqueued: SyncTask = {
@@ -118,6 +145,7 @@ export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'las
   };
   q.push(enqueued);
   writeQueue(q);
+  notifyPending();
   // start processor (async, non-blocking)
   void processQueue();
 }
@@ -144,6 +172,7 @@ async function processQueue() {
         // remove task from queue
         q = readQueue().filter((t) => t.id !== task.id || t.createdAt !== task.createdAt);
         writeQueue(q);
+        notifyPending();
         // continue to next
         i--; // because queue shrank
         continue;
@@ -155,6 +184,7 @@ async function processQueue() {
     }
   } finally {
     processing = false;
+    notifyPending();
   }
 }
 
