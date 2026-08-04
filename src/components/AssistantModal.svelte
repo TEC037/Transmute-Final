@@ -216,18 +216,23 @@
     }
   };
 
+  const normalizeAiHabit = (item: any, id: string): HabitCard => ({
+    id,
+    title: item.title || 'Nuevo Hábito AI',
+    category: item.category || 'focus',
+    streak: 0,
+    targetType: 'checkbox',
+    currentCount: 0,
+    targetCount: item.targetCount || 1,
+    unit: item.unit || 'veces',
+    completed: false,
+    minLevel: user.level,
+    xpReward: item.xpReward || 30,
+  });
+
   const handleExecuteAction = (action: SuggestedAction) => {
     if (action.type === 'create_habit' && action.payload) {
-      const newHabit: HabitCard = {
-        id: `h-ai-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        title: action.payload.title || 'Nuevo Hábito AI',
-        category: action.payload.category || 'focus',
-        targetCount: 1,
-        currentCount: 0,
-        completed: false,
-        xpReward: action.payload.xpReward || 30,
-        minLevel: user.level,
-      };
+      const newHabit = normalizeAiHabit(action.payload, `h-ai-${Date.now()}-${Math.floor(Math.random() * 1000)}`);
       onAddHabit(newHabit);
       messages = [
         ...messages,
@@ -239,25 +244,25 @@
         },
       ];
     } else if (action.type === 'quick_routine' && Array.isArray(action.payload)) {
-      action.payload.forEach((hItem: any, idx: number) => {
-        const newHabit: HabitCard = {
-          id: `h-ai-routine-${Date.now()}-${idx}`,
-          title: hItem.title || 'Hábito Alquímico',
-          category: hItem.category || 'focus',
-          targetCount: 1,
-          currentCount: 0,
-          completed: false,
-          xpReward: hItem.xpReward || 25,
-          minLevel: user.level,
-        };
-        onAddHabit(newHabit);
-      });
+      // Deduplicate by title and cap the routine so repeated taps can't flood the deck.
+      const seen = new Set(habits.map((h) => h.title.trim().toLowerCase()));
+      let added = 0;
+      for (const [idx, hItem] of (action.payload as any[]).entries()) {
+        if (added >= 3) break;
+        const title = hItem?.title?.trim();
+        if (!title || seen.has(title.toLowerCase())) continue;
+        seen.add(title.toLowerCase());
+        onAddHabit(normalizeAiHabit(hItem, `h-ai-routine-${Date.now()}-${idx}`));
+        added++;
+      }
       messages = [
         ...messages,
         {
           id: Date.now().toString(),
           sender: 'assistant',
-          text: `¡Rutina añadida! He incorporado ${action.payload.length} hábitos optimizados directamente a tu Deck.`,
+          text: added > 0
+            ? `¡Rutina añadida! He incorporado ${added} hábitos optimizados directamente a tu Deck.`
+            : 'No añadí hábitos nuevos: tu Deck ya contiene esa rutina.',
           timestamp: new Date(),
         },
       ];

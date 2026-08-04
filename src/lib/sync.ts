@@ -17,6 +17,8 @@ type SyncTask = {
   lastAttemptAt?: string | null;
 };
 
+type DeliveryResult = 'ok' | 'retry' | 'drop';
+
 const STORAGE_KEY = 'transmute_sync_queue_v1';
 const MAX_ATTEMPTS = 6;
 const BASE_DELAY_MS = 1000; // base for exponential backoff
@@ -46,7 +48,7 @@ function nextBackoff(attempts = 0) {
 }
 
 // Deliverer: POST to server-side endpoint /api/sync which should perform Firestore operations
-async function deliverTask(task: SyncTask): Promise<boolean> {
+async function deliverTask(task: SyncTask): Promise<DeliveryResult> {
   try {
     const url = '/api/sync';
 
@@ -61,21 +63,22 @@ async function deliverTask(task: SyncTask): Promise<boolean> {
       });
     };
 
-    let token = getAuthToken() || localStorage.getItem('authToken');
+    let token = getAuthToken();
     let res = await makeFetch(token);
 
-    if (res.ok) return true;
+    if (res.ok) return 'ok';
 
     // If 401 Unauthorized, try to refresh ID token once (if firebase auth is available)
     if (res.status === 401) {
       try {
-        if (auth && (auth as any).currentUser) {
-          const refreshed = await (auth as any).currentUser.getIdToken(true);
+        const user = auth?.currentUser;
+        if (user) {
+          const refreshed = await user.getIdToken(true);
           if (refreshed) {
             setAuthToken(refreshed);
             // retry once with refreshed token
             res = await makeFetch(refreshed);
-            if (res.ok) return true;
+            if (res.ok) return 'ok';
           }
         }
       } catch (err) {
@@ -84,29 +87,32 @@ async function deliverTask(task: SyncTask): Promise<boolean> {
       // If we got a 401 and refresh didn't help, treat as transient to retry later
       const text401 = await res.text().catch(() => '');
       console.warn('Sync task unauthorized after refresh; will retry later', res.status, text401);
-      return false;
+      return 'retry';
     }
 
-    // For client errors (4xx) except 429 Too Many Requests, treat as non-retriable and drop the task
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+    // 429 and 5xx are transient: keep the task and retry with backoff.
+    if (res.status === 429 || res.status >= 500) {
       const text = await res.text().catch(() => '');
-      console.warn('Sync task dropped due to client error', res.status, text);
-      return true; // mark as success so it is removed from queue
+      console.warn('Sync task delivery failed, will retry', res.status, text);
+      return 'retry';
     }
 
+    // Other 4xx are permanent client errors: evict the task (never block the
+    // queue) but surface it so the caller can warn the user.
     const text = await res.text().catch(() => '');
-    console.warn('Sync task delivery failed, will retry', res.status, text);
-    return false;
+    console.warn('Sync task rejected as invalid, dropping', res.status, text);
+    return 'drop';
   } catch (err) {
     // network or other unexpected error - keep for retry
     // keep console logging for debugging
     // eslint-disable-next-line no-console
     console.warn('Sync deliverTask network error or exception', err);
-    return false;
+    return 'retry';
   }
 }
 
 let processing = false;
+let retryHandle: ReturnType<typeof setTimeout> | null = null;
 
 export type SyncPendingListener = (pending: number) => void;
 const pendingListeners = new Set<SyncPendingListener>();
@@ -135,7 +141,35 @@ export function subscribeSyncPending(cb: SyncPendingListener): () => void {
   };
 }
 
+export type SyncDroppedListener = (task: SyncTask, reason: string) => void;
+const droppedListeners = new Set<SyncDroppedListener>();
+
+function notifyDropped(task: SyncTask, reason: string) {
+  droppedListeners.forEach((cb) => {
+    try {
+      cb(task, reason);
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
+// Surface permanently-rejected tasks (e.g. 403 while signed out) so the UI
+// can warn the user instead of losing their change silently.
+export function subscribeSyncDropped(cb: SyncDroppedListener): () => void {
+  droppedListeners.add(cb);
+  return () => {
+    droppedListeners.delete(cb);
+  };
+}
+
 export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'lastAttemptAt'>) {
+  // Guard against malformed tasks (e.g. user updates with no uid while logged
+  // out) that would otherwise be written as docId "undefined" and rejected.
+  if (!task.id) {
+    console.warn('sync: task without id ignored', task);
+    return;
+  }
   const q = readQueue();
   const enqueued: SyncTask = {
     ...task,
@@ -150,41 +184,68 @@ export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'las
   void processQueue();
 }
 
+function scheduleRetry(delay: number) {
+  if (retryHandle != null) clearTimeout(retryHandle);
+  retryHandle = setTimeout(() => {
+    retryHandle = null;
+    void processQueue();
+  }, delay);
+}
+
 async function processQueue() {
   if (processing) return;
   processing = true;
   try {
-    let q = readQueue();
-    if (!q.length) return;
-    // iterate copy to allow mutation
-    for (let i = 0; i < q.length; i++) {
-      const task = q[i];
-      // skip tasks that exceeded attempts
-      if ((task.attempts || 0) >= MAX_ATTEMPTS) continue;
+    for (;;) {
+      let q = readQueue();
+      if (!q.length) return;
+      const task = q[0];
 
-      // attempt delivery
+      // Evict tasks that exhausted their retries so they can't wedge the queue.
+      if ((task.attempts || 0) >= MAX_ATTEMPTS) {
+        q = q.slice(1);
+        writeQueue(q);
+        notifyPending();
+        continue;
+      }
+
       task.attempts = (task.attempts || 0) + 1;
       task.lastAttemptAt = new Date().toISOString();
       writeQueue(q);
 
-      const ok = await deliverTask(task).catch(() => false);
-      if (ok) {
-        // remove task from queue
-        q = readQueue().filter((t) => t.id !== task.id || t.createdAt !== task.createdAt);
+      const result = await deliverTask(task);
+
+      // The queue may have changed while awaiting delivery.
+      q = readQueue();
+      if (!q.some((t) => t.id === task.id && t.createdAt === task.createdAt)) continue;
+
+      if (result === 'ok') {
+        q = q.filter((t) => !(t.id === task.id && t.createdAt === task.createdAt));
         writeQueue(q);
         notifyPending();
-        // continue to next
-        i--; // because queue shrank
         continue;
-      } else {
-        // schedule next attempt with backoff
-        const delay = nextBackoff(task.attempts || 1);
-        await new Promise((r) => setTimeout(r, delay));
       }
+
+      if (result === 'drop') {
+        q = q.filter((t) => !(t.id === task.id && t.createdAt === task.createdAt));
+        writeQueue(q);
+        notifyPending();
+        notifyDropped(task, `La sincronización no pudo aplicar un cambio (${task.entity}).`);
+        continue;
+      }
+
+      // Transient failure: stop blocking the rest of the queue and retry the
+      // whole queue later with backoff (non-blocking).
+      scheduleRetry(nextBackoff(task.attempts || 1));
+      return;
     }
   } finally {
     processing = false;
     notifyPending();
+    // Lost-wakeup guard: pick up tasks enqueued while this pass was running.
+    if (readQueue().length > 0 && retryHandle == null) {
+      void processQueue();
+    }
   }
 }
 
@@ -220,15 +281,4 @@ export function startSyncLoop(intervalMs = 30_000) {
       await processQueue();
     }
   }, 3000);
-}
-
-function stopSyncLoop() {
-  if (loopHandle != null) {
-    clearInterval(loopHandle);
-    loopHandle = null;
-  }
-}
-
-function getQueue(): SyncTask[] {
-  return readQueue();
 }

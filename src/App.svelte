@@ -28,7 +28,8 @@
     saveUserProfileLocal,
     loadUserProfileLocal,
   } from './lib/storage';
-  import { enqueueSync, subscribeSyncPending } from './lib/sync';
+  import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
+  import { persistTodayHistory } from './lib/habitHistory';
   import { popIn, popOut, overlayFade } from './lib/modalTransitions';
 
   // Load initial state from LocalStorage
@@ -74,13 +75,23 @@
     const unsub = subscribeSyncPending((n) => {
       syncPending = n;
     });
+    const unsubDropped = subscribeSyncDropped((_task, reason) => {
+      showToast(reason, 'warning', 6000);
+    });
     const t = setTimeout(() => {
       minHydrationElapsed = true;
     }, 800);
     return () => {
       clearTimeout(t);
       unsub();
+      unsubDropped();
     };
+  });
+
+  // Persist today's completion snapshot for the weekly/monthly charts.
+  // Runs on every habits change (cheap: single small entry, skipped when unchanged).
+  $effect(() => {
+    persistTodayHistory(habits, user.level);
   });
 
   $effect(() => {
