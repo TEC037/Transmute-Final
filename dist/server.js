@@ -149,7 +149,7 @@ async function verifyToken(req, res, next) {
   const authHeader = String(req.header("authorization") || "");
   if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing or invalid Authorization header" });
   const idToken = authHeader.slice(7);
-  if (process.env.DEV_INSECURE_AUTH === "true" && idToken.length > 0) {
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_INSECURE_AUTH === "true" && idToken.length > 0) {
     req.auth = { uid: "dev-user" };
     return next();
   }
@@ -165,17 +165,11 @@ async function verifyToken(req, res, next) {
     return res.status(401).json({ error: "Invalid ID token" });
   }
 }
-function mapEntityToCollection(entity) {
-  switch (entity) {
-    case "habit":
-      return "habits";
-    case "user":
-    case "users":
-      return "users";
-    default:
-      return entity;
-  }
-}
+var ALLOWED_COLLECTIONS = {
+  habit: "habits",
+  user: "users",
+  users: "users"
+};
 var currentFile = typeof __filename !== "undefined" ? __filename : typeof import.meta !== "undefined" && typeof import.meta.url === "string" ? fileURLToPath(import.meta.url) : void 0;
 var currentDir = typeof __dirname !== "undefined" ? __dirname : currentFile ? path.dirname(currentFile) : process.cwd();
 async function startServer() {
@@ -197,18 +191,36 @@ async function startServer() {
     const action = String(task.action);
     const docId = String(task.id);
     const payload = task.payload ?? null;
-    if ((entity === "users" || entity === "user") && docId !== uid) {
+    const colName = ALLOWED_COLLECTIONS[entity];
+    if (!colName) {
+      return res.status(403).json({ error: `Unknown entity: ${entity}` });
+    }
+    if (colName === "users" && docId !== uid) {
       return res.status(403).json({ error: "Cannot modify other user profiles" });
     }
     if (payload && payload.userId && payload.userId !== uid) {
       return res.status(403).json({ error: "Payload userId mismatch" });
     }
+    if (payload && payload.ownerUid && payload.ownerUid !== uid) {
+      return res.status(403).json({ error: "Payload ownerUid mismatch" });
+    }
     try {
-      const colName = mapEntityToCollection(entity);
       const col = db.collection(colName);
+      if (colName === "habits") {
+        const existing = await col.doc(docId).get();
+        if (existing.exists) {
+          const owner = existing.get("ownerUid");
+          if (owner && owner !== uid) {
+            return res.status(403).json({ error: "Cannot modify another user's habit" });
+          }
+        }
+      }
       if (action === "create" || action === "update") {
         const safePayload = sanitizePayload(payload);
-        await col.doc(docId).set({ ...safePayload, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        await col.doc(docId).set(
+          { ...safePayload, ownerUid: uid, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
         return res.status(200).json({ ok: true });
       } else if (action === "delete") {
         await col.doc(docId).delete();
@@ -325,8 +337,9 @@ ${contextText}`;
       });
     }
   }
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+  const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1";
+  app.listen(PORT, host, () => {
+    console.log(`Server listening on http://${host}:${PORT}`);
   });
 }
 startServer();

@@ -172,7 +172,12 @@ async function verifyToken(req: express.Request, res: express.Response, next: ex
 
   // Dev mode (dev.mjs sets DEV_INSECURE_AUTH): accept any non-empty bearer token
   // so the app stays testable locally regardless of Admin SDK/ADC state.
-  if (process.env.DEV_INSECURE_AUTH === 'true' && idToken.length > 0) {
+  // Never honored in production, where it would be a full auth bypass.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    process.env.DEV_INSECURE_AUTH === 'true' &&
+    idToken.length > 0
+  ) {
     (req as any).auth = { uid: 'dev-user' };
     return next();
   }
@@ -191,17 +196,13 @@ async function verifyToken(req: express.Request, res: express.Response, next: ex
   }
 }
 
-function mapEntityToCollection(entity: string) {
-  switch (entity) {
-    case 'habit':
-      return 'habits';
-    case 'user':
-    case 'users':
-      return 'users';
-    default:
-      return entity;
-  }
-}
+// Allowlist of entity names the sync proxy accepts, mapped to Firestore
+// collections. Anything else is rejected instead of being passed through.
+const ALLOWED_COLLECTIONS: Record<string, string> = {
+  habit: 'habits',
+  user: 'users',
+  users: 'users',
+};
 
 // Compute currentFile/currentDir safe for both ESM (import.meta.url) and CommonJS (__filename)
 const currentFile = (typeof __filename !== 'undefined')
@@ -240,21 +241,45 @@ async function startServer() {
     const docId = String(task.id);
     const payload = task.payload ?? null;
 
-    // Security checks
-    if ((entity === 'users' || entity === 'user') && docId !== uid) {
+    // Only known entities may be written; unknown ones are rejected.
+    const colName = ALLOWED_COLLECTIONS[entity];
+    if (!colName) {
+      return res.status(403).json({ error: `Unknown entity: ${entity}` });
+    }
+
+    // Ownership checks
+    if (colName === 'users' && docId !== uid) {
       return res.status(403).json({ error: 'Cannot modify other user profiles' });
     }
     if (payload && payload.userId && payload.userId !== uid) {
       return res.status(403).json({ error: 'Payload userId mismatch' });
     }
+    // Never trust a client-supplied ownerUid (habits are stamped server-side).
+    if (payload && payload.ownerUid && payload.ownerUid !== uid) {
+      return res.status(403).json({ error: 'Payload ownerUid mismatch' });
+    }
 
     try {
-      const colName = mapEntityToCollection(entity);
       const col = db.collection(colName);
+
+      // Habits: only the owner may update/delete an existing document.
+      // Docs missing ownerUid (legacy) are claimed by the first writer.
+      if (colName === 'habits') {
+        const existing = await col.doc(docId).get();
+        if (existing.exists) {
+          const owner = existing.get('ownerUid');
+          if (owner && owner !== uid) {
+            return res.status(403).json({ error: "Cannot modify another user's habit" });
+          }
+        }
+      }
 
       if (action === 'create' || action === 'update') {
         const safePayload = sanitizePayload(payload);
-        await col.doc(docId).set({ ...safePayload, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        await col.doc(docId).set(
+          { ...safePayload, ownerUid: uid, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
         return res.status(200).json({ ok: true });
       } else if (action === 'delete') {
         await col.doc(docId).delete();
@@ -361,8 +386,11 @@ async function startServer() {
     }
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+  // Bind localhost in dev to avoid exposing the API (and DEV_INSECURE_AUTH)
+  // to the network; production containers need 0.0.0.0.
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1';
+  app.listen(PORT, host, () => {
+    console.log(`Server listening on http://${host}:${PORT}`);
   });
 }
 
