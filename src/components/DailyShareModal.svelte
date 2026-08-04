@@ -2,6 +2,7 @@
   import type { HabitCard } from '../types';
   import { toPng } from 'html-to-image';
   import Tooltip from './Tooltip.svelte';
+  import ShareIcon from './ShareIcon.svelte';
   import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
@@ -204,7 +205,7 @@
       <!-- Header -->
       <div class="flex items-center gap-3 border-b-2 border-black pb-3 pr-8">
         <div class="w-12 h-12 border-[2px] border-black bg-amber-300 flex items-center justify-center shrink-0 shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
-          <span class="material-symbols-outlined text-3xl font-bold">share</span>
+          <ShareIcon name="share" size={28} />
         </div>
         <div>
           <span class="font-mono-label text-[10px] font-bold uppercase text-neutral-500 block">
@@ -221,7 +222,7 @@
 
       <!-- One-line Day Summary -->
       <div class="p-3 border-[3px] border-black bg-black text-white flex items-center gap-2.5 shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
-        <span class="material-symbols-outlined text-2xl text-amber-300 fill-1 shrink-0">auto_awesome</span>
+        <ShareIcon name="auto_awesome" size={24} class="text-amber-300 shrink-0" />
         <p class="font-headline text-xs font-extrabold leading-snug">
           Hoy transmutaste {completedHabits.length} de {activeHabits.length} hábitos · +{totalXpToday} XP
         </p>
@@ -265,7 +266,7 @@
             <Tooltip term="Racha" content="Máxima racha consecutiva de hábitos completados">
               <div class="flex flex-col items-center">
                 <span class="font-headline text-lg font-extrabold text-red-600 flex items-center justify-center gap-0.5">
-                  <span class="material-symbols-outlined text-base fill-1">local_fire_department</span>
+                  <ShareIcon name="local_fire_department" size={16} />
                   {highestStreak}d
                 </span>
                 <span class="font-mono-label text-[10px] text-neutral-600 font-bold uppercase">RACHA MÁX</span>
@@ -278,7 +279,7 @@
       <!-- Wisdom Card -->
       <div class="relative p-3.5 border-[3px] border-black shadow-[3px_3px_0_0_rgba(0,0,0,1)] overflow-hidden {statusWisdom.cls}">
         <h4 class="font-headline text-sm font-extrabold mb-1 flex items-center gap-2">
-          <span class="material-symbols-outlined text-lg fill-1">{statusWisdom.icon}</span>
+          <ShareIcon name={statusWisdom.icon} size={18} />
           {statusWisdom.title}
         </h4>
         <p class="font-headline text-xs font-bold leading-relaxed">
@@ -289,7 +290,7 @@
       <!-- Habits Breakdown List -->
       <div class="flex flex-col gap-2">
         <h4 class="font-mono-label text-xs font-bold uppercase text-black flex items-center gap-1">
-          <span class="material-symbols-outlined text-sm">checklist</span>
+          <ShareIcon name="checklist" size={14} />
           Desglose de Hábitos de Hoy
         </h4>
 
@@ -299,10 +300,8 @@
             {@const isFailed = !isDone && habit.failed}
             <div class="p-2.5 border-[2px] border-black bg-white flex items-center justify-between shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
               <div class="flex items-center gap-2.5">
-                <div class="w-7 h-7 border border-black flex items-center justify-center font-bold text-xs {isDone ? 'bg-black text-white' : isFailed ? 'bg-red-700 text-white' : 'bg-neutral-100 text-black'}">
-                  <span class="material-symbols-outlined text-base">
-                    {isDone ? 'check' : isFailed ? 'close' : 'schedule'}
-                  </span>
+                <div class="w-7 h-7 border border-black flex items-center justify-center {isDone ? 'bg-black text-white' : isFailed ? 'bg-red-700 text-white' : 'bg-neutral-100 text-black'}">
+                  <ShareIcon name={isDone ? 'check' : isFailed ? 'close' : 'schedule'} size={16} />
                 </div>
                 <div>
                   <h5 class="font-headline text-xs font-extrabold {isDone || isFailed ? 'line-through text-neutral-500' : 'text-black'}">
@@ -324,8 +323,12 @@
 
       <!-- Shareable Card Footer -->
       <div class="flex items-center justify-between gap-2 border-t-2 border-black pt-3">
-        <span class="font-mono-label text-[10px] font-bold uppercase text-neutral-500">
-          Hecho con <span class="text-amber-600">⚗️ Transmute</span>
+        <span class="font-mono-label text-[10px] font-bold uppercase text-neutral-500 flex items-center gap-1">
+          Hecho con
+          <span class="text-amber-600 inline-flex items-center">
+            <ShareIcon name="science" size={12} />
+          </span>
+          Transmute
         </span>
         <span class="font-mono-label text-[10px] font-bold uppercase text-neutral-500">
           Nivel {userLevel} · {userName}
