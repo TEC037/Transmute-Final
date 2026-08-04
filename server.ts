@@ -165,6 +165,41 @@ function sanitizePayload(payload: any) {
   return out;
 }
 
+function isFiniteNumber(v: any, min: number, max: number): boolean {
+  return typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+}
+
+// Reject malformed payloads before they reach Firestore so a buggy client
+// can't persist corrupt habit/user documents. Returns an error message or null.
+function validatePayload(entity: string, payload: any): string | null {
+  if (payload === null || payload === undefined) return null; // delete tasks
+  if (typeof payload !== 'object' || Array.isArray(payload)) {
+    return `Invalid ${entity} payload`;
+  }
+  if (entity === 'habit') {
+    if (typeof payload.title === 'string' && payload.title.length > 120) return 'Habit title too long';
+    if (payload.targetType !== undefined && !['checkbox', 'counter'].includes(payload.targetType)) {
+      return 'Invalid targetType';
+    }
+    if (payload.targetCount !== undefined && !isFiniteNumber(payload.targetCount, 1, 1000)) {
+      return 'Invalid targetCount';
+    }
+    if (payload.currentCount !== undefined && !isFiniteNumber(payload.currentCount, 0, 1_000_000)) {
+      return 'Invalid currentCount';
+    }
+    if (payload.streak !== undefined && !isFiniteNumber(payload.streak, 0, 100_000)) {
+      return 'Invalid streak';
+    }
+    if (payload.xpReward !== undefined && !isFiniteNumber(payload.xpReward, 0, 1_000_000)) {
+      return 'Invalid xpReward';
+    }
+    if (payload.minLevel !== undefined && !isFiniteNumber(payload.minLevel, 1, 9999)) {
+      return 'Invalid minLevel';
+    }
+  }
+  return null;
+}
+
 async function verifyToken(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = String(req.header('authorization') || '');
   if (!authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing or invalid Authorization header' });
@@ -245,6 +280,19 @@ async function startServer() {
     const colName = ALLOWED_COLLECTIONS[entity];
     if (!colName) {
       return res.status(403).json({ error: `Unknown entity: ${entity}` });
+    }
+
+    // Never let a client write outside the target document: "/" in a doc id
+    // would address a subcollection (col.doc('a/b')), and absurd ids have no
+    // legitimate use.
+    if (docId.length === 0 || docId.includes('/') || docId.length > 120) {
+      return res.status(400).json({ error: 'Invalid task id' });
+    }
+
+    // Reject malformed payloads before they reach Firestore.
+    const payloadError = validatePayload(entity, payload);
+    if (payloadError) {
+      return res.status(400).json({ error: payloadError });
     }
 
     // Ownership checks

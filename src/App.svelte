@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, type Component } from 'svelte';
   import CelebrationStamp from './components/CelebrationStamp.svelte';
   import Toast from './components/Toast.svelte';
-  import HelpModal from './components/HelpModal.svelte';
   import {
     INITIAL_USER_PROFILE,
     ZERO_USER_PROFILE,
@@ -14,12 +13,6 @@
   import DeckView from './components/DeckView.svelte';
   import ProfileView from './components/ProfileView.svelte';
   import CalendarView from './components/CalendarView.svelte';
-  import AuthModal from './components/AuthModal.svelte';
-  import OnboardingModal from './components/OnboardingModal.svelte';
-  import AttributeModal from './components/AttributeModal.svelte';
-  import NewHabitModal from './components/NewHabitModal.svelte';
-  import DailyShareModal from './components/DailyShareModal.svelte';
-  import AssistantModal from './components/AssistantModal.svelte';
 
   import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, type User } from './lib/firebase';
   import {
@@ -34,10 +27,57 @@
     setClaimedBonusDate,
   } from './lib/storage';
   import { enqueueSync, subscribeSyncPending, subscribeSyncDropped } from './lib/sync';
-  import { persistTodayHistory, todayKey } from './lib/habitHistory';
+  import { persistTodayHistory, todayKey, clearHistory } from './lib/habitHistory';
   import { getAuthToken } from './lib/authToken';
   import { mergeHabits, isUntouchedDefaults } from './lib/mergeHabits';
   import { popIn, popOut, overlayFade } from './lib/modalTransitions';
+
+  // Modals are lazy-loaded on first open so heavy chunks (e.g. html-to-image
+  // inside DailyShareModal) don't bloat the initial bundle. The component is
+  // cached after the first import, so subsequent opens are instant.
+  type ModalKey =
+    | 'auth'
+    | 'onboarding'
+    | 'attribute'
+    | 'newHabit'
+    | 'dailyShare'
+    | 'assistant'
+    | 'help';
+  const modalCtors = $state<Record<ModalKey, Component | null>>({
+    auth: null,
+    onboarding: null,
+    attribute: null,
+    newHabit: null,
+    dailyShare: null,
+    assistant: null,
+    help: null,
+  });
+
+  const modalLoaders: Record<ModalKey, () => Promise<{ default: Component }>> = {
+    auth: () => import('./components/AuthModal.svelte'),
+    onboarding: () => import('./components/OnboardingModal.svelte'),
+    attribute: () => import('./components/AttributeModal.svelte'),
+    newHabit: () => import('./components/NewHabitModal.svelte'),
+    dailyShare: () => import('./components/DailyShareModal.svelte'),
+    assistant: () => import('./components/AssistantModal.svelte'),
+    help: () => import('./components/HelpModal.svelte'),
+  };
+
+  const openModal = async (key: ModalKey, setOpen: (v: boolean) => void) => {
+    if (!modalCtors[key]) {
+      const mod = await modalLoaders[key]();
+      modalCtors[key] = mod.default;
+    }
+    setOpen(true);
+  };
+
+  const AuthModalCtor = $derived(modalCtors.auth);
+  const OnboardingModalCtor = $derived(modalCtors.onboarding);
+  const AttributeModalCtor = $derived(modalCtors.attribute);
+  const NewHabitModalCtor = $derived(modalCtors.newHabit);
+  const DailyShareModalCtor = $derived(modalCtors.dailyShare);
+  const AssistantModalCtor = $derived(modalCtors.assistant);
+  const HelpModalCtor = $derived(modalCtors.help);
 
   // Load initial state from LocalStorage
   const loadInitialState = () => {
@@ -173,7 +213,7 @@
             });
           }
           // Accompany user right after login!
-          onboardingModalOpen = true;
+          void openModal('onboarding', (v) => (onboardingModalOpen = v));
           // Restore cloud habits after the profile doc is synced.
           void hydrateHabitsFromCloud(u.uid);
         } catch (err) {
@@ -244,6 +284,9 @@
       streak: 0,
     }));
 
+    // A true restart: wipe calendar/streak history too.
+    clearHistory();
+
     // Tombstone + cloud-delete the previous habits so they don't resurrect
     // from the cloud on the next hydration (multi-device consistency).
     for (const h of previousHabits) {
@@ -271,7 +314,7 @@
       }
     }
 
-    onboardingModalOpen = true;
+    void openModal('onboarding', (v) => (onboardingModalOpen = v));
     showStamp({ icon: 'auto_awesome', title: 'ALQUIMIA REINICIADA', subtitle: 'Nivel 1 · 0 XP' });
   };
 
@@ -544,14 +587,14 @@
     }
   };
 
-  const handleOpenEditHabit = (habit: HabitCard) => {
+  const handleOpenEditHabit = async (habit: HabitCard) => {
     habitToEdit = habit;
-    newHabitModalOpen = true;
+    await openModal('newHabit', (v) => (newHabitModalOpen = v));
   };
 
-  const handleOpenNewHabitModal = () => {
+  const handleOpenNewHabitModal = async () => {
     habitToEdit = null;
-    newHabitModalOpen = true;
+    await openModal('newHabit', (v) => (newHabitModalOpen = v));
   };
 
   const handleClaimDailyBonus = () => {
@@ -585,9 +628,9 @@
     {user}
     {isOnline}
     onOpenLevelInfo={() => (levelInfoModalOpen = true)}
-    onOpenAuthModal={() => (authModalOpen = true)}
-    onOpenAssistant={() => (assistantModalOpen = true)}
-    onOpenHelp={() => (helpModalOpen = true)}
+    onOpenAuthModal={() => void openModal('auth', (v) => (authModalOpen = v))}
+    onOpenAssistant={() => void openModal('assistant', (v) => (assistantModalOpen = v))}
+    onOpenHelp={() => void openModal('help', (v) => (helpModalOpen = v))}
     onToggleNoirDarkMode={handleToggleNoirDarkMode}
   />
 
@@ -606,7 +649,7 @@
         onOpenNewHabitModal={handleOpenNewHabitModal}
         onEditHabitRequest={handleOpenEditHabit}
         onDeleteHabit={handleDeleteHabit}
-        onOpenDailyShare={() => (dailyShareModalOpen = true)}
+        onOpenDailyShare={() => void openModal('dailyShare', (v) => (dailyShareModalOpen = v))}
       />
     {:else if activeTab === 'calendar'}
       <CalendarView
@@ -618,10 +661,10 @@
         {user}
         {habits}
         {isNoirDarkMode}
-        onOpenAttributeModal={() => (attributeModalOpen = true)}
+        onOpenAttributeModal={() => void openModal('attribute', (v) => (attributeModalOpen = v))}
         onUpdateQuote={handleUpdateQuote}
         onAllocatePoint={handleAllocatePoint}
-        onOpenOnboardingModal={() => (onboardingModalOpen = true)}
+        onOpenOnboardingModal={() => void openModal('onboarding', (v) => (onboardingModalOpen = v))}
         onResetProgressToZero={handleResetProgressToZero}
         onToggleNoirDarkMode={handleToggleNoirDarkMode}
       />
@@ -634,66 +677,81 @@
     onChangeTab={(tab) => (activeTab = tab)}
   />
 
-  <!-- Modals -->
-  <OnboardingModal
-    isOpen={onboardingModalOpen}
-    userName={user.name}
-    onClose={() => (onboardingModalOpen = false)}
-    onChangeTab={(t) => (activeTab = t)}
-    onResetToZero={handleResetProgressToZero}
-  />
-  <AuthModal
-    isOpen={authModalOpen}
-    {currentUser}
-    onClose={() => (authModalOpen = false)}
-  />
+  <!-- Modals (lazy-loaded on first open) -->
+  {#if onboardingModalOpen && OnboardingModalCtor}
+    <OnboardingModalCtor
+      isOpen={onboardingModalOpen}
+      userName={user.name}
+      onClose={() => (onboardingModalOpen = false)}
+      onChangeTab={(t) => (activeTab = t)}
+      onResetToZero={handleResetProgressToZero}
+    />
+  {/if}
 
-  <AttributeModal
-    {user}
-    isOpen={attributeModalOpen}
-    onClose={() => (attributeModalOpen = false)}
-    onAllocatePoint={handleAllocatePoint}
-  />
+  {#if authModalOpen && AuthModalCtor}
+    <AuthModalCtor
+      isOpen={authModalOpen}
+      {currentUser}
+      onClose={() => (authModalOpen = false)}
+    />
+  {/if}
 
-  <NewHabitModal
-    isOpen={newHabitModalOpen}
-    {habitToEdit}
-    onClose={() => {
-      newHabitModalOpen = false;
-      habitToEdit = null;
-    }}
-    onSaveHabit={handleSaveHabit}
-    onDeleteHabit={handleDeleteHabit}
-  />
+  {#if attributeModalOpen && AttributeModalCtor}
+    <AttributeModalCtor
+      {user}
+      isOpen={attributeModalOpen}
+      onClose={() => (attributeModalOpen = false)}
+      onAllocatePoint={handleAllocatePoint}
+    />
+  {/if}
 
-  <DailyShareModal
-    isOpen={dailyShareModalOpen}
-    {habits}
-    userLevel={user.level}
-    userName={user.name}
-    {claimedBonusToday}
-    onClose={() => (dailyShareModalOpen = false)}
-    onClaimBonus={handleClaimDailyBonus}
-  />
+  {#if newHabitModalOpen && NewHabitModalCtor}
+    <NewHabitModalCtor
+      isOpen={newHabitModalOpen}
+      {habitToEdit}
+      onClose={() => {
+        newHabitModalOpen = false;
+        habitToEdit = null;
+      }}
+      onSaveHabit={handleSaveHabit}
+      onDeleteHabit={handleDeleteHabit}
+    />
+  {/if}
 
-  <AssistantModal
-    isOpen={assistantModalOpen}
-    onClose={() => (assistantModalOpen = false)}
-    {user}
-    {habits}
-    onAddHabit={(h) => {
-      const stamped = { ...h, updatedAt: new Date().toISOString() } as HabitCard;
-      habits = [stamped, ...habits];
-      enqueueSync({ entity: 'habit', action: 'create', id: stamped.id, payload: stamped });
-    }}
-    onToggleHabit={handleToggleHabit}
-    onNavigateTab={(t) => (activeTab = t)}
-  />
+  {#if dailyShareModalOpen && DailyShareModalCtor}
+    <DailyShareModalCtor
+      isOpen={dailyShareModalOpen}
+      {habits}
+      userLevel={user.level}
+      userName={user.name}
+      {claimedBonusToday}
+      onClose={() => (dailyShareModalOpen = false)}
+      onClaimBonus={handleClaimDailyBonus}
+    />
+  {/if}
 
-  <HelpModal
-    isOpen={helpModalOpen}
-    onClose={() => (helpModalOpen = false)}
-  />
+  {#if assistantModalOpen && AssistantModalCtor}
+    <AssistantModalCtor
+      isOpen={assistantModalOpen}
+      onClose={() => (assistantModalOpen = false)}
+      {user}
+      {habits}
+      onAddHabit={(h) => {
+        const stamped = { ...h, updatedAt: new Date().toISOString() } as HabitCard;
+        habits = [stamped, ...habits];
+        enqueueSync({ entity: 'habit', action: 'create', id: stamped.id, payload: stamped });
+      }}
+      onToggleHabit={handleToggleHabit}
+      onNavigateTab={(t) => (activeTab = t)}
+    />
+  {/if}
+
+  {#if helpModalOpen && HelpModalCtor}
+    <HelpModalCtor
+      isOpen={helpModalOpen}
+      onClose={() => (helpModalOpen = false)}
+    />
+  {/if}
 
   <!-- Floating Action Buttons -->
   <div class="fixed bottom-20 right-4 z-40 flex flex-col gap-2">
@@ -709,7 +767,7 @@
 
     <button
       type="button"
-      onclick={() => (assistantModalOpen = true)}
+      onclick={() => void openModal('assistant', (v) => (assistantModalOpen = v))}
       class="bg-black text-white border-[3px] border-black p-3 rounded-full shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:bg-neutral-800 hover:scale-105 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 group font-mono font-black text-xs"
       title="Asistente de Flujos AI"
     >

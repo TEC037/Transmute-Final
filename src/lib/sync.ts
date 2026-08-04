@@ -170,7 +170,10 @@ export function enqueueSync(task: Omit<SyncTask, 'attempts' | 'createdAt' | 'las
     console.warn('sync: task without id ignored', task);
     return;
   }
-  const q = readQueue();
+  // Coalesce: a newer task for the same entity+id supersedes the previous one.
+  // Rapid toggles (complete/undo/complete) collapse to a single delivery, and
+  // a pending delete followed by an undo (re-create) keeps only the create.
+  let q = readQueue().filter((t) => !(t.entity === task.entity && t.id === task.id));
   const enqueued: SyncTask = {
     ...task,
     attempts: 0,

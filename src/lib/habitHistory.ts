@@ -73,6 +73,15 @@ export function todayKey(): string {
   return formatDateKey(new Date());
 }
 
+/** Wipe all persisted history (used by "reset progress to zero"). */
+export function clearHistory(): void {
+  try {
+    localStorage.removeItem(HISTORY_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /**
  * Get the last 7 days array (from 6 days ago to today)
  */

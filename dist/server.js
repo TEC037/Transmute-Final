@@ -145,6 +145,37 @@ function sanitizePayload(payload) {
   }
   return out;
 }
+function isFiniteNumber(v, min, max) {
+  return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;
+}
+function validatePayload(entity, payload) {
+  if (payload === null || payload === void 0) return null;
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    return `Invalid ${entity} payload`;
+  }
+  if (entity === "habit") {
+    if (typeof payload.title === "string" && payload.title.length > 120) return "Habit title too long";
+    if (payload.targetType !== void 0 && !["checkbox", "counter"].includes(payload.targetType)) {
+      return "Invalid targetType";
+    }
+    if (payload.targetCount !== void 0 && !isFiniteNumber(payload.targetCount, 1, 1e3)) {
+      return "Invalid targetCount";
+    }
+    if (payload.currentCount !== void 0 && !isFiniteNumber(payload.currentCount, 0, 1e6)) {
+      return "Invalid currentCount";
+    }
+    if (payload.streak !== void 0 && !isFiniteNumber(payload.streak, 0, 1e5)) {
+      return "Invalid streak";
+    }
+    if (payload.xpReward !== void 0 && !isFiniteNumber(payload.xpReward, 0, 1e6)) {
+      return "Invalid xpReward";
+    }
+    if (payload.minLevel !== void 0 && !isFiniteNumber(payload.minLevel, 1, 9999)) {
+      return "Invalid minLevel";
+    }
+  }
+  return null;
+}
 async function verifyToken(req, res, next) {
   const authHeader = String(req.header("authorization") || "");
   if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Missing or invalid Authorization header" });
@@ -194,6 +225,13 @@ async function startServer() {
     const colName = ALLOWED_COLLECTIONS[entity];
     if (!colName) {
       return res.status(403).json({ error: `Unknown entity: ${entity}` });
+    }
+    if (docId.length === 0 || docId.includes("/") || docId.length > 120) {
+      return res.status(400).json({ error: "Invalid task id" });
+    }
+    const payloadError = validatePayload(entity, payload);
+    if (payloadError) {
+      return res.status(400).json({ error: payloadError });
     }
     if (colName === "users" && docId !== uid) {
       return res.status(403).json({ error: "Cannot modify other user profiles" });

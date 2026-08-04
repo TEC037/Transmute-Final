@@ -75,4 +75,32 @@ describe('sync', () => {
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(getSyncPending()).toBe(0);
   });
+
+  it('coalesces rapid updates for the same entity+id into a single task', () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: { title: 'v1' } });
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: { title: 'v2' } });
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: { title: 'v3' } });
+
+    expect(queueContents()).toHaveLength(1);
+    expect(queueContents()[0].payload.title).toBe('v3');
+  });
+
+  it('keeps only the create when a pending delete is undone', () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+    enqueueSync({ entity: 'habit', action: 'delete', id: 'h1', payload: null });
+    enqueueSync({ entity: 'habit', action: 'create', id: 'h1', payload: { title: 'resurrected' } });
+
+    expect(queueContents()).toHaveLength(1);
+    expect(queueContents()[0].action).toBe('create');
+    expect(queueContents()[0].payload.title).toBe('resurrected');
+  });
+
+  it('does not coalesce tasks for different ids', () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h1', payload: {} });
+    enqueueSync({ entity: 'habit', action: 'update', id: 'h2', payload: {} });
+
+    expect(queueContents()).toHaveLength(2);
+  });
 });
