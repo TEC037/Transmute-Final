@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
+
   interface Props {
     isOpen: boolean;
     title: string;
@@ -30,13 +32,17 @@
 
 {#if isOpen}
   <div
+    in:overlayFade
+    out:overlayFade
     class="fixed inset-0 z-[65] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs"
     role="dialog"
     aria-modal="true"
     aria-label={title}
   >
     <div
-      class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-150"
+      in:popIn
+      out:popOut
+      class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto"
     >
       <div class="w-14 h-14 border-[3px] border-black flex items-center justify-center mx-auto mb-3 shadow-[3px_3px_0_0_rgba(0,0,0,1)] {tone === 'danger' ? 'bg-white text-red-700' : 'bg-black text-white'}">
         <span class="material-symbols-outlined text-3xl">

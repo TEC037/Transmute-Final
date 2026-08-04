@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { HabitCard, UserProfile } from '../types';
   import { getAuthToken } from '../lib/authToken';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface SuggestedAction {
     type: 'create_habit' | 'mark_complete' | 'quick_routine';
@@ -282,9 +283,13 @@
 
 {#if isOpen}
   <div
-    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
+    in:overlayFade
+    out:overlayFade
+    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4"
   >
     <div
+      in:popIn
+      out:popOut
       class="bg-white border-[3px] border-black p-4 sm:p-5 shadow-[5px_5px_0_0_rgba(0,0,0,1)] max-w-lg w-full h-[85vh] flex flex-col justify-between relative wobbly-border text-black select-none"
     >
       <!-- Header -->

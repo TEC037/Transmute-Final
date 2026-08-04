@@ -10,6 +10,7 @@
     type User,
   } from '../lib/firebase';
   import { setAuthToken, clearAuthToken } from '../lib/authToken';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     isOpen: boolean;
@@ -125,9 +126,11 @@
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs" in:overlayFade out:overlayFade>
     <div
-      class="bg-white border-[3px] border-black p-6 w-full max-w-md wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto"
+      in:popIn
+      out:popOut
+      class="bg-white border-[3px] border-black p-6 w-full max-w-md wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative overflow-hidden max-h-[90vh] overflow-y-auto"
     >
       <!-- Close button -->
       <button

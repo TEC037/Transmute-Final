@@ -28,6 +28,7 @@
     loadUserProfileLocal,
   } from './lib/storage';
   import { enqueueSync } from './lib/sync';
+  import { popIn, popOut, overlayFade } from './lib/modalTransitions';
 
   // Load initial state from LocalStorage
   const loadInitialState = () => {
@@ -574,8 +575,8 @@
   </div>
 
   {#if levelInfoModalOpen}
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-      <div class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto">
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs" in:overlayFade out:overlayFade>
+      <div in:popIn out:popOut class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto">
         <button
           type="button"
           onclick={() => (levelInfoModalOpen = false)}

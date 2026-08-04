@@ -2,6 +2,7 @@
   import type { HabitCard } from '../types';
   import { toPng } from 'html-to-image';
   import Tooltip from './Tooltip.svelte';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     isOpen: boolean;
@@ -184,10 +185,12 @@
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs" in:overlayFade out:overlayFade>
     <div
+      in:popIn
+      out:popOut
       bind:this={shareCardRef}
-      class="bg-white border-[3px] border-black p-6 w-full max-w-md wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative flex flex-col gap-5 animate-in fade-in zoom-in duration-150 {isExporting ? 'overflow-visible' : 'max-h-[90vh] overflow-y-auto'}"
+      class="bg-white border-[3px] border-black p-6 w-full max-w-md wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative flex flex-col gap-5 {isExporting ? 'overflow-visible' : 'max-h-[90vh] overflow-y-auto'}"
     >
       <!-- Close Button -->
       <button

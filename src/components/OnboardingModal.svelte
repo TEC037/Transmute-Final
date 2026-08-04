@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TabType } from './BottomNav.svelte';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     isOpen: boolean;
@@ -58,9 +59,11 @@
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs" in:overlayFade out:overlayFade>
     <div
-      class="bg-white border-[3px] border-black p-6 w-full max-w-lg wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative flex flex-col gap-5 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto"
+      in:popIn
+      out:popOut
+      class="bg-white border-[3px] border-black p-6 w-full max-w-lg wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative flex flex-col gap-5 max-h-[90vh] overflow-y-auto"
     >
       <!-- Step Indicator Header -->
       <div class="flex justify-between items-center border-b-2 border-black pb-3">
@@ -82,7 +85,7 @@
       <!-- Step Content Switcher -->
       {#if step === 1}
         <!-- Step 1: Welcome & Reset Option -->
-        <div class="flex flex-col gap-4 animate-in fade-in">
+        <div class="flex flex-col gap-4" in:overlayFade out:overlayFade>
           <div class="w-14 h-14 border-[3px] border-black bg-amber-300 flex items-center justify-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
             <span class="material-symbols-outlined text-3xl font-bold">auto_awesome</span>
           </div>
@@ -118,7 +121,7 @@
 
       {:else if step === 2}
         <!-- Step 2: Habits Deck -->
-        <div class="flex flex-col gap-4 animate-in fade-in">
+        <div class="flex flex-col gap-4" in:overlayFade out:overlayFade>
           <div class="w-14 h-14 border-[3px] border-black bg-black text-white flex items-center justify-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
             <span class="material-symbols-outlined text-3xl font-bold">style</span>
           </div>
@@ -140,7 +143,7 @@
 
       {:else if step === 3}
         <!-- Step 3: Profile & Custom Keys -->
-        <div class="flex flex-col gap-4 animate-in fade-in">
+        <div class="flex flex-col gap-4" in:overlayFade out:overlayFade>
           <div class="w-14 h-14 border-[3px] border-black bg-[#f3f3f4] flex items-center justify-center shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
             <span class="material-symbols-outlined text-3xl font-bold">tune</span>
           </div>

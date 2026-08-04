@@ -2,6 +2,7 @@
   import type { HabitCard } from '../types';
   import { getMonthlyCalendarData, type CalendarDayStat } from '../lib/habitHistory';
   import WeeklyHabitChart from './WeeklyHabitChart.svelte';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     habits: HabitCard[];
@@ -266,9 +267,13 @@
   <!-- Day Detail Modal -->
   {#if selectedDay}
     <div
-      class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+      in:overlayFade
+      out:overlayFade
+      class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
     >
       <div
+        in:popIn
+        out:popOut
         class="bg-white border-[3px] border-black p-5 sm:p-6 shadow-[5px_5px_0_0_rgba(0,0,0,1)] max-w-md w-full relative wobbly-border text-black max-h-[90vh] overflow-y-auto"
       >
         <!-- Close button -->

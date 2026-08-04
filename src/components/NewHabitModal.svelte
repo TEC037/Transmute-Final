@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import type { HabitCard } from '../types';
   import ConfirmModal from './ConfirmModal.svelte';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     isOpen: boolean;
@@ -53,9 +54,11 @@
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs" in:overlayFade out:overlayFade>
     <div
-      class="bg-white border-[3px] border-black p-6 w-full max-w-lg wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200"
+      in:popIn
+      out:popOut
+      class="bg-white border-[3px] border-black p-6 w-full max-w-lg wobbly-border shadow-[5px_5px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto"
     >
       <!-- Close button -->
       <button

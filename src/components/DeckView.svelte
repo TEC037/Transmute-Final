@@ -4,6 +4,8 @@
   import type { HabitCard } from '../types';
   import Tooltip from './Tooltip.svelte';
   import ConfirmModal from './ConfirmModal.svelte';
+  import EmptyState from './EmptyState.svelte';
+  import { popIn, popOut, overlayFade } from '../lib/modalTransitions';
 
   interface Props {
     habits: HabitCard[];
@@ -269,10 +271,14 @@
         </div>
 
         {#if failedHabits.length === 0}
-          <div class="border-[2px] border-dashed border-neutral-300 p-3 text-center">
-            <p class="font-mono-label text-[10px] font-bold text-neutral-400 uppercase">
-              Sin fallos reconocidos hoy
-            </p>
+          <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1 flex items-center justify-center">
+            <EmptyState
+              tone="red"
+              compact
+              icon="heart_broken"
+              title="Sin fallos reconocidos"
+              description="Nada que reprochar. Todos tus acuerdos siguieron en pie hoy."
+            />
           </div>
         {:else}
           <div class="flex flex-col gap-3">
@@ -318,10 +324,14 @@
         </div>
 
         {#if pendingHabits.length === 0}
-          <div class="border-[2px] border-dashed border-neutral-300 p-3 text-center">
-            <p class="font-mono-label text-[10px] font-bold text-neutral-400 uppercase">
-              Todos los hábitos están resueltos
-            </p>
+          <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1">
+            <EmptyState
+              icon="self_improvement"
+              title="El alquimista descansa"
+              description="Tu mazo está en reposo: todos los hábitos de hoy quedaron resueltos. Cuando quieras transmutar algo nuevo, crea otro acuerdo."
+              actionLabel="CREAR HÁBITO"
+              onAction={onOpenNewHabitModal}
+            />
           </div>
         {:else}
           <div class="relative h-[360px]">
@@ -486,10 +496,14 @@
         </div>
 
         {#if completedHabits.length === 0}
-          <div class="border-[2px] border-dashed border-neutral-300 p-3 text-center">
-            <p class="font-mono-label text-[10px] font-bold text-neutral-400 uppercase">
-              Completa hábitos para verlos aquí
-            </p>
+          <div class="border-[2px] border-dashed border-neutral-300 p-4 flex-1 flex items-center justify-center">
+            <EmptyState
+              tone="green"
+              compact
+              icon="verified"
+              title="Aún sin oro hoy"
+              description="Desliza hábitos a la derecha y aquí se acumulará tu oro del día."
+            />
           </div>
         {:else}
           <div class="flex flex-col gap-3">
@@ -528,8 +542,8 @@
 
 <!-- Failure Acknowledgment Modal -->
 {#if habitToFail}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-    <div class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs" in:overlayFade out:overlayFade>
+    <div in:popIn out:popOut class="bg-white border-[4px] border-black p-6 w-full max-w-sm wobbly-border shadow-[10px_10px_0_0_rgba(0,0,0,1)] relative max-h-[90vh] overflow-y-auto">
       <button
         type="button"
         onclick={cancelFail}
